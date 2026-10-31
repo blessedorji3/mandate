@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SignOutButton } from "@/app/sign-out-button";
 import { PolicyPanel } from "@/app/policy-panel";
+import { DeveloperPanel } from "@/app/developer-panel";
 
 type Outcome = "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
 type Decision = { outcome: Outcome; reason: string; message: string; policyId: string; policyVersion: number; proposalId: string; createdAt?: string };
@@ -90,7 +91,7 @@ export default function Home() {
 
           <div className="metrics">
             <article className="metric-card"><div className="metric-top"><span>POLICY STATUS</span><span className="metric-icon green">◈</span></div><div className="metric-value"><span className="live-dot"></span> Active</div><p>Owner-managed policy</p></article>
-            <article className="metric-card"><div className="metric-top"><span>AGENTS CONNECTED</span><span className="metric-icon">⌘</span></div><div className="metric-value">01 <small>agent</small></div><p>No wallet or agent connected</p></article>
+            <article className="metric-card"><div className="metric-top"><span>DEVELOPER API</span><span className="metric-icon">⌘</span></div><div className="metric-value">Ready</div><p>Agent inspection endpoint deployed</p></article>
             <article className="metric-card"><div className="metric-top"><span>ACTIONS INSPECTED</span><span className="metric-icon">⌁</span></div><div className="metric-value">{history.length.toString().padStart(2, "0")}</div><p>In this demo session</p></article>
             <article className="metric-card"><div className="metric-top"><span>SECURITY DECISIONS</span><span className="metric-icon">⬡</span></div><div className="metric-value">{history.filter((item) => item.outcome !== "ALLOW").length.toString().padStart(2, "0")} <small>blocked / approval</small></div><p>Denied or awaiting owner review</p></article>
           </div>
@@ -117,7 +118,7 @@ export default function Home() {
 
           <section className="panel activity-panel" id="activity"><div className="panel-heading"><div><span className="step">03</span><h3>Recent decisions</h3></div><span className="muted-tag">SAVED RECEIPTS</span></div>{history.length === 0 ? <div className="empty-history">No decisions yet. Run your first inspection above.</div> : <div className="history-list">{history.map((item, index) => <div className="history-row" key={item.proposalId + index}><span className={`history-icon ${item.outcome.toLowerCase()}`}>{item.outcome === "ALLOW" ? "✓" : item.outcome === "BLOCK" ? "×" : "!"}</span><span className="history-main"><strong>{item.reason.replaceAll("_", " ").toLowerCase()}</strong><small>{item.proposalId}{item.createdAt ? ` · ${new Date(item.createdAt).toLocaleString()}` : ""}</small></span><span className={`history-status ${item.outcome.toLowerCase()}`}>{item.outcome.replace("_", " ")}</span></div>)}</div>}</section>
 
-          <PolicyPanel />
+          <DeveloperPanel />\n\n          <PolicyPanel />
 
           <footer className="footer"><span>MANDATE <b>·</b> Intelligence with boundaries.</span><span>Prototype v0.1 <b>·</b> Test environment only</span></footer>
         </div>
