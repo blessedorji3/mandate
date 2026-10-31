@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { SignOutButton } from "@/app/sign-out-button";
+import { PolicyPanel } from "@/app/policy-panel";
 
 type Outcome = "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
 type Decision = { outcome: Outcome; reason: string; message: string; policyId: string; policyVersion: number; proposalId: string };
@@ -105,6 +106,8 @@ export default function Home() {
           </div>
 
           <section className="panel activity-panel" id="activity"><div className="panel-heading"><div><span className="step">03</span><h3>Recent decisions</h3></div><span className="muted-tag">THIS SESSION</span></div>{history.length === 0 ? <div className="empty-history">No decisions yet. Run your first inspection above.</div> : <div className="history-list">{history.map((item, index) => <div className="history-row" key={item.proposalId + index}><span className={`history-icon ${item.outcome.toLowerCase()}`}>{item.outcome === "ALLOW" ? "✓" : item.outcome === "BLOCK" ? "×" : "!"}</span><span className="history-main"><strong>{item.reason.replaceAll("_", " ").toLowerCase()}</strong><small>{item.proposalId}</small></span><span className={`history-status ${item.outcome.toLowerCase()}`}>{item.outcome.replace("_", " ")}</span></div>)}</div>}</section>
+
+          <PolicyPanel />
 
           <footer className="footer"><span>MANDATE <b>·</b> Intelligence with boundaries.</span><span>Prototype v0.1 <b>·</b> Test environment only</span></footer>
         </div>
