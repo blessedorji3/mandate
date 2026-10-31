@@ -16,7 +16,8 @@
     "@supabase/supabase-js": "^2.57.0",
     "next": "^15.5.6",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "@hot-labs/near-connect": "^0.11.4"
   },
   "devDependencies": {
     "@types/node": "^22.18.6",
