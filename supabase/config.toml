@@ -1,0 +1,4 @@
+project_id = "abyyyehfivahedvjrcwj"
+
+[functions.agent-inspect]
+verify_jwt = false
