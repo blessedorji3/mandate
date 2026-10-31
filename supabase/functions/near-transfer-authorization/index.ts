@@ -1,8 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
-const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
+const SECRET_KEYS = Deno.env.get("SUPABASE_SECRET_KEYS");
+let SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+try { if (SECRET_KEYS) SERVICE_KEY = JSON.parse(SECRET_KEYS).default ?? SERVICE_KEY; } catch { /* retain legacy service role key */ }
 const APP_RECIPIENT = "mandate-snowy.vercel.app";
 const TEST_TRANSFER = {
   network: "testnet",
@@ -192,13 +194,11 @@ Deno.serve(async (req: Request) => {
         `Challenge: ${challengeId}`,
         `Nonce: ${nonceHex}`,
       ].join("\n");
-      const { error: insertError } = await admin.schema("mandate_private").from("near_transfer_challenges").insert({
-        id: challengeId, owner_id: user.id, nonce_hex: nonceHex, message,
-        signer_account_id: signer, policy_id: policy.id, policy_version: policy.version,
-        proposal_id: decision.proposalId, network: TEST_TRANSFER.network,
-        receiver_id: TEST_TRANSFER.receiverId, asset: TEST_TRANSFER.asset,
-        amount_atomic: TEST_TRANSFER.amountAtomic, action_type: TEST_TRANSFER.actionType,
-        action_digest: digest, expires_at: new Date(Date.now() + 3 * 60_000).toISOString(),
+      const { error: insertError } = await admin.rpc("create_near_transfer_challenge_v2", {
+        p_owner_id: user.id, p_id: challengeId, p_nonce_hex: nonceHex,
+        p_message: message, p_signer_account_id: signer, p_policy_id: policy.id,
+        p_policy_version: policy.version, p_proposal_id: decision.proposalId,
+        p_action_digest: digest,
       });
       if (insertError) throw new Error("Could not create a secure wallet challenge");
       return json({
@@ -216,10 +216,10 @@ Deno.serve(async (req: Request) => {
           typeof signed.signature !== "string") {
         return json({ error: "A valid NEP-413 signed message is required." }, 400);
       }
-      const { data: challenge, error: challengeError } = await admin.schema("mandate_private")
-        .from("near_transfer_challenges").select("*")
-        .eq("id", challengeId).eq("owner_id", user.id)
-        .is("consumed_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
+      const { data: challengeRows, error: challengeError } = await admin.rpc("get_near_transfer_challenge_v2", {
+        p_owner_id: user.id, p_id: challengeId,
+      });
+      const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
       if (challengeError || !challenge) return json({ error: "Challenge expired, missing, or already used." }, 409);
       if (signed.accountId !== challenge.signer_account_id) return json({ error: "The signature account does not match the proposed sender." }, 403);
 
