@@ -62,7 +62,7 @@ export default function Home() {
     <main className="shell">
       <aside className="sidebar">
         <a className="brand" href="#"><span className="brand-mark">M</span><span>MANDATE<small>SECURITY LAYER</small></span></a>
-        <div className="workspace"><span className="avatar">D</span><span>Demo workspace<small>Local environment</small></span><span className="chevron">⌄</span></div>
+        <div className="workspace"><span className="avatar">D</span><span>Private workspace<small>Account protected</small></span><span className="chevron">⌄</span></div>
         <p className="nav-label">WORKSPACE</p>
         <a className="nav-item active" href="#overview"><span>◫</span> Overview</a>
         <a className="nav-item" href="#attack-lab"><span>⌘</span> Attack Lab <i>LIVE</i></a>
@@ -79,8 +79,8 @@ export default function Home() {
           <div className="welcome-row"><div><p className="eyebrow">SATURDAY, OCTOBER 31, 2026</p><h1>Your agents. <em>Your rules.</em></h1><p className="subheading">A clear view of what your AI agents can do — and what they can&apos;t.</p></div><button className="outline-button" onClick={() => { setResult(null); setHistory([]); }}>↻ Reset demo</button></div>
 
           <div className="metrics">
-            <article className="metric-card"><div className="metric-top"><span>POLICY STATUS</span><span className="metric-icon green">◈</span></div><div className="metric-value"><span className="live-dot"></span> Active</div><p>Version 1 · Demo policy</p></article>
-            <article className="metric-card"><div className="metric-top"><span>AGENTS CONNECTED</span><span className="metric-icon">⌘</span></div><div className="metric-value">01 <small>agent</small></div><p>Research agent · Test identity</p></article>
+            <article className="metric-card"><div className="metric-top"><span>POLICY STATUS</span><span className="metric-icon green">◈</span></div><div className="metric-value"><span className="live-dot"></span> Active</div><p>Owner-managed policy</p></article>
+            <article className="metric-card"><div className="metric-top"><span>AGENTS CONNECTED</span><span className="metric-icon">⌘</span></div><div className="metric-value">01 <small>agent</small></div><p>No wallet or agent connected</p></article>
             <article className="metric-card"><div className="metric-top"><span>ACTIONS INSPECTED</span><span className="metric-icon">⌁</span></div><div className="metric-value">{history.length.toString().padStart(2, "0")}</div><p>In this demo session</p></article>
             <article className="metric-card"><div className="metric-top"><span>SECURITY DECISIONS</span><span className="metric-icon">⬡</span></div><div className="metric-value">{history.filter((item) => item.outcome !== "ALLOW").length.toString().padStart(2, "0")} <small>blocked / approval</small></div><p>Denied or awaiting owner review</p></article>
           </div>
