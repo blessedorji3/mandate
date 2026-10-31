@@ -96,6 +96,13 @@ export function evaluateAction(proposalInput: unknown, policyInput: unknown): Au
     return decision(proposal, policy, "BLOCK", "INVALID_AMOUNT", "The action amount must be a positive integer in atomic units.");
   }
 
+  // Swaps and arbitrary contract calls are intentionally disabled until
+  // their calldata, token pair, slippage, and protocol semantics are decoded
+  // and checked by dedicated action-specific validators.
+  if (proposal.actionType === "swap" || proposal.actionType === "contract_call") {
+    return decision(proposal, policy, "BLOCK", "ACTION_NOT_SUPPORTED", "This action type is not yet supported by MANDATE's verified inspection rules. No action is authorized.");
+  }
+
   if (!policy.allowedActionTypes.includes(proposal.actionType)) {
     return decision(proposal, policy, "BLOCK", "ACTION_NOT_ALLOWED", "This type of action is not permitted by the active policy.");
   }
