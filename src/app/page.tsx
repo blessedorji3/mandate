@@ -76,6 +76,7 @@ export default function Home() {
         <div className="workspace"><span className="avatar">D</span><span>Private workspace<small>Account protected</small></span><span className="chevron">⌄</span></div>
         <p className="nav-label">WORKSPACE</p>
         <a className="nav-item active" href="#overview"><span>◫</span> Overview</a>
+        <a className="nav-item" href="/agent"><span>✳</span> Agent chat <i>NEW</i></a>
         <a className="nav-item" href="#attack-lab"><span>⌘</span> Attack Lab <i>LIVE</i></a>
         <a className="nav-item" href="#activity"><span>↗</span> Decision history</a>
         <p className="nav-label second">CONFIGURATION</p>
