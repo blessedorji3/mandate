@@ -84,7 +84,7 @@ const response = await fetch(
 const result = await response.json();
 ```
 
-The endpoint resolves the API key to its owner, loads that owner's active policy, applies deterministic fail-closed checks, and persists a decision receipt. Responses are `ALLOW`, `BLOCK`, or `REQUIRE_APPROVAL`. An `ALLOW` is not a signature or transaction execution authorization; no wallet is connected and this endpoint never moves funds.
+The endpoint resolves the API key to its owner, applies a per-key limit of 60 requests per minute, loads that owner's active policy, applies deterministic fail-closed checks, and persists a decision receipt. Responses are `ALLOW`, `BLOCK`, or `REQUIRE_APPROVAL`. An `ALLOW` is not a signature or transaction execution authorization; no wallet is connected and this endpoint never moves funds.
 
 Supported inspection is currently limited to transfers and token approvals. Swaps and arbitrary contract calls are blocked as unsupported until their semantics can be decoded and verified.
 
