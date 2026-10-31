@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SignOutButton } from "@/app/sign-out-button";
 import { PolicyPanel } from "@/app/policy-panel";
 
 type Outcome = "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
-type Decision = { outcome: Outcome; reason: string; message: string; policyId: string; policyVersion: number; proposalId: string };
+type Decision = { outcome: Outcome; reason: string; message: string; policyId: string; policyVersion: number; proposalId: string; createdAt?: string };
 
 const scenarios = [
   { id: "safe", label: "Permitted transfer", detail: "Known recipient · within limit", amount: "0.2", target: "alice.near", type: "transfer" },
@@ -20,7 +20,7 @@ export default function Home() {
   const [result, setResult] = useState<Decision | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<Decision[]>([]);
-  const scenario = useMemo(() => scenarios.find((item) => item.id === selected) ?? scenarios[0], [selected]);
+  const scenario = useMemo(() => scenarios.find((item) => item.id === selected) ?? scenarios[0], [selected]);\n\n  useEffect(() => {\n    fetch("/api/decisions").then(async response => {\n      const data = await response.json();\n      if (!response.ok) throw new Error(data.error ?? "History unavailable");\n      setHistory((data.decisions ?? []).map((item: { outcome: Outcome; reason: string; policy_id: string | null; policy_version: number; proposal_id: string; created_at: string }) => ({\n        outcome: item.outcome, reason: item.reason, message: "", policyId: item.policy_id ?? "unknown", policyVersion: item.policy_version, proposalId: item.proposal_id, createdAt: item.created_at\n      })));\n    }).catch(() => setHistory([]));\n  }, []);
 
   async function inspect() {
     setLoading(true);
@@ -105,7 +105,7 @@ export default function Home() {
             </section>
           </div>
 
-          <section className="panel activity-panel" id="activity"><div className="panel-heading"><div><span className="step">03</span><h3>Recent decisions</h3></div><span className="muted-tag">THIS SESSION</span></div>{history.length === 0 ? <div className="empty-history">No decisions yet. Run your first inspection above.</div> : <div className="history-list">{history.map((item, index) => <div className="history-row" key={item.proposalId + index}><span className={`history-icon ${item.outcome.toLowerCase()}`}>{item.outcome === "ALLOW" ? "✓" : item.outcome === "BLOCK" ? "×" : "!"}</span><span className="history-main"><strong>{item.reason.replaceAll("_", " ").toLowerCase()}</strong><small>{item.proposalId}</small></span><span className={`history-status ${item.outcome.toLowerCase()}`}>{item.outcome.replace("_", " ")}</span></div>)}</div>}</section>
+          <section className="panel activity-panel" id="activity"><div className="panel-heading"><div><span className="step">03</span><h3>Recent decisions</h3></div><span className="muted-tag">SAVED RECEIPTS</span></div>{history.length === 0 ? <div className="empty-history">No decisions yet. Run your first inspection above.</div> : <div className="history-list">{history.map((item, index) => <div className="history-row" key={item.proposalId + index}><span className={`history-icon ${item.outcome.toLowerCase()}`}>{item.outcome === "ALLOW" ? "✓" : item.outcome === "BLOCK" ? "×" : "!"}</span><span className="history-main"><strong>{item.reason.replaceAll("_", " ").toLowerCase()}</strong><small>{item.proposalId}{item.createdAt ? ` · ${new Date(item.createdAt).toLocaleString()}` : ""}</small></span><span className={`history-status ${item.outcome.toLowerCase()}`}>{item.outcome.replace("_", " ")}</span></div>)}</div>}</section>
 
           <PolicyPanel />
 
