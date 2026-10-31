@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { SignOutButton } from "@/app/sign-out-button";
 
 type Outcome = "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
 type Decision = { outcome: Outcome; reason: string; message: string; policyId: string; policyVersion: number; proposalId: string };
@@ -72,7 +73,7 @@ export default function Home() {
       </aside>
 
       <section className="main-area" id="overview">
-        <header className="topbar"><div className="crumb">Workspace <span>/</span> Overview</div><div className="top-actions"><span className="env-pill"><b></b> TEST ENVIRONMENT</span><button className="icon-button" aria-label="Notifications">♧</button><div className="user-avatar">B</div></div></header>
+        <header className="topbar"><div className="crumb">Workspace <span>/</span> Overview</div><div className="top-actions"><SignOutButton /><span className="env-pill"><b></b> TEST ENVIRONMENT</span><button className="icon-button" aria-label="Notifications">♧</button><div className="user-avatar">B</div></div></header>
         <div className="content">
           <div className="welcome-row"><div><p className="eyebrow">SATURDAY, OCTOBER 31, 2026</p><h1>Your agents. <em>Your rules.</em></h1><p className="subheading">A clear view of what your AI agents can do — and what they can&apos;t.</p></div><button className="outline-button" onClick={() => { setResult(null); setHistory([]); }}>↻ Reset demo</button></div>
 
