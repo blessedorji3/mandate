@@ -162,7 +162,8 @@ async function verifyOnChainTransfer(transactionHash: string, signerAccountId: s
     status,
   };
 }
-\nasync function actionDigest(signerAccountId: string) {
+
+async function actionDigest(signerAccountId: string) {
   const canonical = [
     "NEAR", "testnet", "transfer", signerAccountId,
     TEST_TRANSFER.receiverId, TEST_TRANSFER.amountAtomic,
