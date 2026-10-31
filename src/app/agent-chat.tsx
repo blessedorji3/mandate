@@ -19,18 +19,7 @@ type Message = {
   decision?: Decision;
 };
 
-const SCALE = 10n ** 24n;
-
-function parseTransfer(input: string) {
-  const match = input.trim().match(/^(?:send|transfer)\s+([0-9]+(?:\.[0-9]{1,24})?)\s+near\s+to\s+([a-z0-9._-]{2,64})\.?$/i);
-  if (!match) return null;
-
-  const [whole, fraction = ""] = match[1].split(".");
-  const amountAtomic = (BigInt(whole) * SCALE + BigInt((fraction + "0".repeat(24)).slice(0, 24))).toString();
-  if (BigInt(amountAtomic) <= 0n) return null;
-
-  return { amount: match[1], amountAtomic, target: match[2].toLowerCase() };
-}
+import { parseNearTransferCommand } from "@/agent/parse-command";
 
 export function AgentChat() {
   const [input, setInput] = useState("");
@@ -52,7 +41,7 @@ export function AgentChat() {
     setBusy(true);
     setMessages(current => [...current, { id: crypto.randomUUID(), role: "user", text: command }]);
 
-    const parsed = parseTransfer(command);
+    const parsed = parseNearTransferCommand(command);
     if (!parsed) {
       setMessages(current => [...current, {
         id: crypto.randomUUID(),
