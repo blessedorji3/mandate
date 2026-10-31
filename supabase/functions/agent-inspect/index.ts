@@ -11,6 +11,17 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 function isRecord(v: unknown): v is Record<string, unknown> { return typeof v === "object" && v !== null && !Array.isArray(v); }
 function nonEmpty(v: unknown): v is string { return typeof v === "string" && v.trim().length > 0; }
 function integer(v: unknown): v is string { return typeof v === "string" && INTEGER.test(v); }
+function validPolicy(v: unknown): v is Policy {
+  return isRecord(v) &&
+    nonEmpty(v.id) &&
+    Number.isSafeInteger(v.version) && Number(v.version) > 0 &&
+    typeof v.active === "boolean" &&
+    integer(v.maxAmountAtomic) && BigInt(v.maxAmountAtomic) > 0n &&
+    Array.isArray(v.allowedRecipients) && v.allowedRecipients.length <= 100 && v.allowedRecipients.every(nonEmpty) &&
+    Array.isArray(v.allowedActionTypes) && v.allowedActionTypes.length > 0 && v.allowedActionTypes.every(x => typeof x === "string" && ACTIONS.has(x)) &&
+    typeof v.requireApprovalForTokenApprovals === "boolean" &&
+    typeof v.requireApprovalForAllActions === "boolean";
+}
 
 function evaluate(p: unknown, policy: Policy) {
   const base = { policyId: policy.id, policyVersion: policy.version, proposalId: isRecord(p) && nonEmpty(p.id) ? p.id : "untrusted-proposal" };
@@ -77,12 +88,14 @@ Deno.serve(async (req: Request) => {
   if (policyError) return json({ error: "Could not load the owner's active policy." }, 500);
   if (!saved) return json({ error: "No active security policy is configured." }, 409);
 
-  const policy: Policy = {
+  const policyCandidate = {
     id: saved.id, version: saved.version, active: saved.active, maxAmountAtomic: saved.max_amount_atomic,
     allowedRecipients: saved.allowed_recipients, allowedActionTypes: saved.allowed_action_types,
     requireApprovalForTokenApprovals: saved.require_approval_for_token_approvals,
     requireApprovalForAllActions: saved.require_approval_for_all_actions
   };
+  if (!validPolicy(policyCandidate)) return json({ error: "The saved policy is invalid. No action is authorized." }, 500);
+  const policy = policyCandidate;
   const decision = evaluate(body.proposal, policy);
   const proposal = isRecord(body.proposal) ? body.proposal : {};
   const { error: receiptError } = await admin.from("authorization_decisions").insert({
