@@ -10,7 +10,7 @@ const scenarios = [
   { id: "limit", label: "Excessive transfer", detail: "Amount exceeds policy limit", amount: "2", target: "alice.near", type: "transfer" },
   { id: "recipient", label: "Unknown recipient", detail: "Destination is not approved", amount: "0.1", target: "mallory.near", type: "transfer" },
   { id: "approval", label: "Token approval", detail: "Sensitive allowance requires owner approval", amount: "0.1", target: "alice.near", type: "token_approval" },
-  { id: "override", label: "Disallowed action", detail: "Agent attempts an unapproved action type", amount: "0.1", target: "alice.near", type: "swap" }
+  { id: "override", label: "Unsupported swap", detail: "Swap inspection is disabled until transaction details can be verified", amount: "0.1", target: "alice.near", type: "swap" }
 ] as const;
 
 export default function Home() {
@@ -74,7 +74,7 @@ export default function Home() {
       <section className="main-area" id="overview">
         <header className="topbar"><div className="crumb">Workspace <span>/</span> Overview</div><div className="top-actions"><span className="env-pill"><b></b> TEST ENVIRONMENT</span><button className="icon-button" aria-label="Notifications">♧</button><div className="user-avatar">B</div></div></header>
         <div className="content">
-          <div className="welcome-row"><div><p className="eyebrow">MONDAY, OCTOBER 31, 2026</p><h1>Your agents. <em>Your rules.</em></h1><p className="subheading">A clear view of what your AI agents can do — and what they can&apos;t.</p></div><button className="outline-button" onClick={() => { setResult(null); setHistory([]); }}>↻ Reset demo</button></div>
+          <div className="welcome-row"><div><p className="eyebrow">SATURDAY, OCTOBER 31, 2026</p><h1>Your agents. <em>Your rules.</em></h1><p className="subheading">A clear view of what your AI agents can do — and what they can&apos;t.</p></div><button className="outline-button" onClick={() => { setResult(null); setHistory([]); }}>↻ Reset demo</button></div>
 
           <div className="metrics">
             <article className="metric-card"><div className="metric-top"><span>POLICY STATUS</span><span className="metric-icon green">◈</span></div><div className="metric-value"><span className="live-dot"></span> Active</div><p>Version 1 · Demo policy</p></article>
