@@ -9,7 +9,8 @@ MANDATE inspects proposed financial actions, evaluates them against owner-define
 ## Current status
 
 - Deterministic authorization engine with fail-closed validation.
-- Demo Attack Lab with simulated proposals; no wallet or funds are connected.
+- Demo Attack Lab with simulated proposals.
+- Authenticated NEAR Testnet wallet connection through the open-source NEAR Connect SDK; this connection reads the public account ID only and does not sign or broadcast transactions.
 - Supabase Auth integration using the official `@supabase/ssr` cookie-based client.
 - Protected dashboard and inspection API.
 - Owner-scoped policy and decision tables protected by Postgres Row Level Security.
@@ -92,6 +93,8 @@ Supported inspection is currently limited to transfers and token approvals. Swap
 
 
 ## Agent chat prototype
+
+The authenticated `/wallet` workspace connects a NEAR Testnet wallet using `@hot-labs/near-connect` (NEAR Connect). It requests testnet-capable wallets, does not request a function-call access key, does not collect private keys, and currently only reads the connected public account ID. Transaction signing and broadcast are not implemented yet.
 
 The authenticated `/agent` workspace provides a constrained natural-language command interface. The current parser supports only commands in this format:
 
