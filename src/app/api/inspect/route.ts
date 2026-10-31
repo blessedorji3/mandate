@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { evaluateAction } from "@/security/evaluate-action";
 import type { SecurityPolicy } from "@/security/types";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,13 @@ const demoPolicy: SecurityPolicy = {
 const jsonHeaders = { "Cache-Control": "no-store" };
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "Sign in before inspecting an action." }, { status: 401, headers: jsonHeaders });
+  }
+
   try {
     const contentLength = Number(request.headers.get("content-length") ?? "0");
     if (Number.isFinite(contentLength) && contentLength > 16_384) {
