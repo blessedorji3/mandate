@@ -127,7 +127,42 @@ async function verifyNep413(message: string, nonce: Uint8Array, recipient: strin
   const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "Ed25519" }, false, ["verify"]);
   return await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, sig, digest);
 }
-async function actionDigest(signerAccountId: string) {
+
+async function verifyOnChainTransfer(transactionHash: string, signerAccountId: string) {
+  if (base58Decode(transactionHash).length !== 32) throw new Error("Invalid NEAR transaction hash");
+  const response = await fetch("https://rpc.testnet.near.org", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: "mandate-verify-transfer",
+      method: "EXPERIMENTAL_tx_status",
+      params: [transactionHash, signerAccountId],
+    }),
+  });
+  if (!response.ok) throw new Error("NEAR Testnet transaction lookup failed");
+  const payload = await response.json();
+  if (payload.error || !payload.result?.transaction) throw new Error("Transaction is not yet available on NEAR Testnet");
+  const tx = payload.result.transaction;
+  if (tx.hash !== transactionHash || tx.signer_id !== signerAccountId ||
+      tx.receiver_id !== TEST_TRANSFER.receiverId || !Array.isArray(tx.actions) ||
+      tx.actions.length !== 1 || tx.actions[0]?.Transfer?.deposit !== TEST_TRANSFER.amountAtomic) {
+    throw new Error("On-chain transaction does not match the exact MANDATE-authorized transfer");
+  }
+  const status = payload.result.status;
+  if (!status || typeof status !== "object" || "Failure" in status) {
+    throw new Error("The NEAR Testnet transaction did not complete successfully");
+  }
+  return {
+    verified: true,
+    transactionHash,
+    signerAccountId,
+    receiverId: tx.receiver_id,
+    amountAtomic: TEST_TRANSFER.amountAtomic,
+    network: "testnet",
+    status,
+  };
+}
+\nasync function actionDigest(signerAccountId: string) {
   const canonical = [
     "NEAR", "testnet", "transfer", signerAccountId,
     TEST_TRANSFER.receiverId, TEST_TRANSFER.amountAtomic,
@@ -274,6 +309,17 @@ Deno.serve(async (req: Request) => {
       });
       if (consumeError || consumed !== true) return json({ error: "Authorization is expired, mismatched, replayed, or invalid." }, 409);
       return json({ consumed: true, message: "One-time authorization consumed. The wallet may now request your explicit transaction approval." });
+    }
+
+
+    if (body.action === "verify_transaction") {
+      const { transactionHash, signerAccountId } = body;
+      if (typeof transactionHash !== "string" || typeof signerAccountId !== "string" ||
+          !/^[a-z0-9._-]+\\.testnet$/.test(signerAccountId)) {
+        return json({ error: "A valid Testnet transaction hash and signer are required." }, 400);
+      }
+      const result = await verifyOnChainTransfer(transactionHash, signerAccountId);
+      return json(result);
     }
 
     return json({ error: "Unknown action." }, 400);
