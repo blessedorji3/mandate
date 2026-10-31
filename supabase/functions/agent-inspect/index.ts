@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.57.0";
 
 type ActionType = "transfer" | "token_approval" | "swap" | "contract_call";
 type Proposal = { id: string; agentId: string; actionType: ActionType; asset: string; amountAtomic: string; target: string; protocol?: string; approvalAmountAtomic?: string };
