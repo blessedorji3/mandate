@@ -63,6 +63,24 @@ describe("evaluateAction", () => {
     expect(result.reason).toBe("ACTION_NOT_ALLOWED");
   });
 
+  it("blocks swaps even if a policy lists them as allowed", () => {
+    const result = evaluateAction(
+      { ...proposal, actionType: "swap" },
+      { ...policy, allowedActionTypes: ["transfer", "token_approval", "swap"] }
+    );
+    expect(result.outcome).toBe("BLOCK");
+    expect(result.reason).toBe("ACTION_NOT_SUPPORTED");
+  });
+
+  it("blocks arbitrary contract calls even if a policy lists them as allowed", () => {
+    const result = evaluateAction(
+      { ...proposal, actionType: "contract_call" },
+      { ...policy, allowedActionTypes: ["transfer", "token_approval", "contract_call"] }
+    );
+    expect(result.outcome).toBe("BLOCK");
+    expect(result.reason).toBe("ACTION_NOT_SUPPORTED");
+  });
+
   it("requires approval when the whole policy is configured for approval", () => {
     const result = evaluateAction(proposal, { ...policy, requireApprovalForAllActions: true });
     expect(result.outcome).toBe("REQUIRE_APPROVAL");
