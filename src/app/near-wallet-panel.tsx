@@ -196,7 +196,17 @@ export function NearWalletPanel() {
         throw new Error("The wallet returned without a transaction hash. Check your wallet activity before retrying.");
       }
       setTxHash(hash);
-      setNotice("The wallet returned a transaction hash. Check its final status on NEAR Testnet.");
+      setNotice("Transaction submitted. Independently verifying the exact transfer on NEAR Testnet…");
+      const chainResult = await authorizationRequest({
+        action: "verify_transaction",
+        transactionHash: hash,
+        signerAccountId: accountId,
+      });
+      if (chainResult.verified !== true || chainResult.receiverId !== TRANSFER.receiverId ||
+          chainResult.amountAtomic !== TRANSFER.amountAtomic) {
+        throw new Error("MANDATE could not verify the exact transfer on NEAR Testnet. Check the explorer before retrying.");
+      }
+      setNotice("Verified on NEAR Testnet: the exact 0.001 NEAR transfer reached the confirmed recipient.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The transfer was cancelled or failed. Check wallet activity before retrying.");
       setNotice("No successful transaction was confirmed by MANDATE.");
