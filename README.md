@@ -43,7 +43,7 @@ Email confirmation should remain enabled. Configure the sender/SMTP only if a su
 - No service-role key is required by the current application.
 - Policy and history rows are scoped to `auth.uid()`.
 - Authorization history is not directly insertable from the authenticated browser role.
-- The current inspection route uses a clearly labelled demo policy; it is not yet loading a user's saved policy.
+- The authenticated dashboard inspection route loads the owner's active saved policy. The external Developer API independently loads that same owner's active policy.
 
 ## CI
 
@@ -88,4 +88,15 @@ The endpoint resolves the API key to its owner, applies a per-key limit of 60 re
 
 Supported inspection is currently limited to transfers and token approvals. Swaps and arbitrary contract calls are blocked as unsupported until their semantics can be decoded and verified.
 
-**Security:** The Edge Function uses Supabase's server-only secret key internally. It is never sent to the browser or committed to this repository. API keys are not user passwords; store them in a trusted backend secret manager and revoke them if exposed. This prototype does not yet include production rate limiting, usage quotas, or transaction execution.
+**Security:** The Edge Function uses Supabase's server-only secret key internally. It is never sent to the browser or committed to this repository. API keys are not user passwords; store them in a trusted backend secret manager and revoke them if exposed. The Developer API currently enforces a per-key limit of 60 requests per minute. This is a prototype limit, not a complete production abuse-prevention system. There is no transaction execution.
+
+
+## Agent chat prototype
+
+The authenticated `/agent` workspace provides a constrained natural-language command interface. The current parser supports only commands in this format:
+
+`Send 0.1 NEAR to alice.near`
+
+It converts the amount into NEAR atomic units and submits the structured proposal to the authenticated `/api/inspect` route, which loads the signed-in owner's active policy and stores a decision receipt. Unsupported or ambiguous commands are not guessed. This first interface uses a deterministic command parser, not an LLM. It cannot connect a wallet, sign, broadcast, or move funds.
+
+The dashboard links to the chat workspace. The external Developer API remains intended for trusted server-side agent integrations and must not be called with a secret key from browser code.
