@@ -100,6 +100,13 @@ The authenticated `/agent` workspace provides a constrained natural-language com
 
 `Send 0.1 NEAR to alice.near`
 
-It converts the amount into NEAR atomic units and submits the structured proposal to the authenticated `/api/inspect` route, which loads the signed-in owner's active policy and stores a decision receipt. Unsupported or ambiguous commands are not guessed. This first interface uses a deterministic command parser, not an LLM. It cannot connect a wallet, sign, broadcast, or move funds.
+It converts the amount into NEAR atomic units and submits the structured proposal to the authenticated `/api/inspect` route, which loads the signed-in owner's active policy and stores a decision receipt. Unsupported or ambiguous commands are not guessed. This first interface uses a deterministic command parser, not an LLM. The separate `/wallet` page now connects a NEAR Testnet wallet and reads its public account ID. Wallet connection alone does not sign, broadcast, or move funds. Transaction construction, decision-to-transaction binding, explicit approval, signing, and broadcast are not implemented yet.
 
 The dashboard links to the chat workspace. The external Developer API remains intended for trusted server-side agent integrations and must not be called with a secret key from browser code.
+
+
+## NEAR Testnet wallet connection
+
+The authenticated `/wallet` page uses `@hot-labs/near-connect` configured for **NEAR Testnet only**. It lets the user select a compatible wallet, connects without requesting a transaction, reads the public account ID, and supports disconnecting. Wallet keys and recovery phrases remain inside the wallet; MANDATE does not request or store them.
+
+**Current boundary:** this is connection-only. No transaction is constructed, signed, or broadcast from this page. Before enabling execution, MANDATE must bind the policy decision to the exact network, signer, receiver, action, amount, and transaction parameters; re-check the active policy; require explicit owner confirmation; and fail closed on any mismatch. Testnet execution will be implemented only after those checks and transaction tests are in place.
