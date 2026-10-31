@@ -149,7 +149,7 @@ async function verifyOnChainTransfer(transactionHash: string, signerAccountId: s
     body: JSON.stringify({
       jsonrpc: "2.0", id: "mandate-verify-transfer",
       method: "EXPERIMENTAL_tx_status",
-      params: [transactionHash, signerAccountId],
+      params: [transactionHash, signerAccountId, "FINAL"],
     }),
   });
   if (!response.ok) throw new Error("NEAR Testnet transaction lookup failed");
@@ -162,7 +162,9 @@ async function verifyOnChainTransfer(transactionHash: string, signerAccountId: s
     throw new Error("On-chain transaction does not match the exact MANDATE-authorized transfer");
   }
   const status = payload.result.status;
-  if (!status || typeof status !== "object" || "Failure" in status) {
+  if (!status || typeof status !== "object" ||
+      !("SuccessValue" in status || "SuccessReceiptId" in status) ||
+      "Failure" in status) {
     throw new Error("The NEAR Testnet transaction did not complete successfully");
   }
   return {
@@ -192,6 +194,9 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
   if (req.headers.get("origin") !== "https://mandate-snowy.vercel.app") {
     return json({ error: "Origin not allowed." }, 403);
+  }
+  if (!PROJECT_URL || !ANON_KEY || !SERVICE_KEY) {
+    return json({ error: "Authorization service is not configured." }, 503);
   }
   const user = await authenticate(req);
   if (!user) return json({ error: "Sign in to MANDATE before authorizing a transfer." }, 401);
