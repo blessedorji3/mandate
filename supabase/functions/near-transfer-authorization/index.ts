@@ -94,14 +94,27 @@ async function getPolicy(admin: ReturnType<typeof createClient>, ownerId: string
   if (error) throw new Error("Could not load the active security policy");
   return data;
 }
-function policyAllows(policy: Record<string, unknown>) {
-  return policy.active === true &&
-    Array.isArray(policy.allowed_action_types) && policy.allowed_action_types.includes("transfer") &&
-    Array.isArray(policy.allowed_recipients) && policy.allowed_recipients.includes(TEST_TRANSFER.receiverId) &&
-    typeof policy.max_amount_atomic === "string" &&
-    /^[1-9][0-9]*$/.test(policy.max_amount_atomic) &&
-    BigInt(policy.max_amount_atomic) >= BigInt(TEST_TRANSFER.amountAtomic) &&
-    policy.require_approval_for_all_actions === false;
+function evaluateTestTransferPolicy(policy: Record<string, unknown>) {
+  if (policy.active !== true ||
+      !Array.isArray(policy.allowed_action_types) || !policy.allowed_action_types.includes("transfer")) {
+    return { outcome: "BLOCK", reason: "ACTION_NOT_ALLOWED", message: "The active policy does not permit NEAR transfers." };
+  }
+  if (typeof policy.max_amount_atomic !== "string" ||
+      !/^[1-9][0-9]*$/.test(policy.max_amount_atomic) ||
+      BigInt(policy.max_amount_atomic) < BigInt(TEST_TRANSFER.amountAtomic)) {
+    return { outcome: "BLOCK", reason: "AMOUNT_LIMIT_EXCEEDED", message: "The test transfer exceeds the active policy amount limit." };
+  }
+  if (!Array.isArray(policy.allowed_recipients) ||
+      !policy.allowed_recipients.includes(TEST_TRANSFER.receiverId)) {
+    return { outcome: "BLOCK", reason: "RECIPIENT_NOT_ALLOWED", message: "The test recipient is not approved by the active policy." };
+  }
+  if (policy.require_approval_for_all_actions === true) {
+    return { outcome: "REQUIRE_APPROVAL", reason: "OWNER_APPROVAL_REQUIRED", message: "The active policy requires an additional owner approval workflow." };
+  }
+  if (policy.require_approval_for_all_actions !== false) {
+    return { outcome: "BLOCK", reason: "INVALID_POLICY", message: "The active policy approval setting is invalid." };
+  }
+  return { outcome: "ALLOW", reason: "POLICY_CHECKS_PASSED", message: "The exact NEAR Testnet transfer satisfies the active policy." };
 }
 async function rpcViewAccessKeys(accountId: string) {
   const response = await fetch("https://rpc.testnet.near.org", {
@@ -203,15 +216,29 @@ Deno.serve(async (req: Request) => {
         return json({ error: "Connect a valid NEAR Testnet account." }, 400);
       }
       const policy = await getPolicy(admin, user.id);
-      if (!policy || !policyAllows(policy)) {
-        return json({ error: "Your active policy does not ALLOW this exact Testnet transfer. No authorization was issued." }, 403);
-      }
+      if (!policy) return json({ error: "Create and activate a security policy before requesting authorization." }, 409);
+      const evaluated = evaluateTestTransferPolicy(policy);
       const decision = {
-        outcome: "ALLOW", reason: "POLICY_CHECKS_PASSED",
+        ...evaluated,
         policyId: policy.id, policyVersion: policy.version,
         proposalId: proposalId(),
-        message: "Exact NEAR Testnet transfer satisfies the active MANDATE policy.",
       };
+      const proposal = {
+        id: decision.proposalId, agentId: "mandate-wallet-panel",
+        actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
+        amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
+        network: TEST_TRANSFER.network,
+      };
+      const { error: decisionError } = await admin.from("authorization_decisions").insert({
+        owner_id: user.id, policy_id: policy.id, policy_version: policy.version,
+        proposal_id: decision.proposalId, agent_id: "mandate-wallet-panel",
+        action_type: TEST_TRANSFER.actionType, outcome: decision.outcome,
+        reason: decision.reason, proposal,
+      });
+      if (decisionError) throw new Error("Could not record the policy decision");
+      if (decision.outcome !== "ALLOW") {
+        return json({ error: decision.message, decision }, 403);
+      }
       const digest = await actionDigest(signer);
       const nonce = crypto.getRandomValues(new Uint8Array(32));
       const challengeId = crypto.randomUUID();
@@ -271,7 +298,8 @@ Deno.serve(async (req: Request) => {
       if (!signatureValid) return json({ error: "NEP-413 wallet signature verification failed." }, 403);
 
       const policy = await getPolicy(admin, user.id);
-      if (!policy || policy.id !== challenge.policy_id || policy.version !== challenge.policy_version || !policyAllows(policy)) {
+      if (!policy || policy.id !== challenge.policy_id || policy.version !== challenge.policy_version ||
+          evaluateTestTransferPolicy(policy).outcome !== "ALLOW") {
         return json({ error: "The active policy changed or no longer permits this transfer. Start again." }, 409);
       }
       const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -298,7 +326,7 @@ Deno.serve(async (req: Request) => {
       if (typeof receipt !== "string" || !/^[0-9a-f]{64}$/.test(receipt) ||
           typeof signerAccountId !== "string") return json({ error: "Invalid authorization receipt." }, 400);
       const policy = await getPolicy(admin, user.id);
-      if (!policy || !policyAllows(policy)) return json({ error: "The active policy no longer permits this transfer." }, 403);
+      if (!policy || evaluateTestTransferPolicy(policy).outcome !== "ALLOW") return json({ error: "The active policy no longer permits this transfer." }, 403);
       const tokenHash = hex(await sha256(encoder.encode(receipt)));
       const digest = await actionDigest(signerAccountId);
       const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v2", {
