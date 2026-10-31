@@ -13,14 +13,21 @@ const TEST_TRANSFER = {
   amountAtomic: "1000000000000000000000",
   actionType: "transfer",
 } as const;
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "https://mandate-snowy.vercel.app",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Vary": "Origin",
-};
-const headers = { "Cache-Control": "no-store", ...corsHeaders };
-const json = (body: unknown, status = 200) => Response.json(body, { status, headers });
+const ALLOWED_ORIGINS = new Set([
+  "https://mandate-snowy.vercel.app",
+  "https://mandate-git-feature-near-transfer-authorization-web3pass.vercel.app",
+]);
+function responseHeaders(origin: string) {
+  return {
+    "Cache-Control": "no-store",
+    ...(ALLOWED_ORIGINS.has(origin) ? { "Access-Control-Allow-Origin": origin } : {}),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+}
+const json = (body: unknown, status = 200, origin = "") =>
+  Response.json(body, { status, headers: responseHeaders(origin) });
 const encoder = new TextEncoder();
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -190,16 +197,16 @@ function proposalId() {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers });
-  if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
-  if (req.headers.get("origin") !== "https://mandate-snowy.vercel.app") {
-    return json({ error: "Origin not allowed." }, 403);
-  }
+  const origin = req.headers.get("origin") ?? "";
+  const reply = (body: unknown, status = 200) => json(body, status, origin);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: responseHeaders(origin) });
+  if (req.method !== "POST") return reply({ error: "Method not allowed." }, 405);
+  if (!ALLOWED_ORIGINS.has(origin)) return reply({ error: "Origin not allowed." }, 403);
   if (!PROJECT_URL || !ANON_KEY || !SERVICE_KEY) {
-    return json({ error: "Authorization service is not configured." }, 503);
+    return reply({ error: "Authorization service is not configured." }, 503);
   }
   const user = await authenticate(req);
-  if (!user) return json({ error: "Sign in to MANDATE before authorizing a transfer." }, 401);
+  if (!user) return reply({ error: "Sign in to MANDATE before authorizing a transfer." }, 401);
   const admin = createClient(PROJECT_URL, SERVICE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -207,21 +214,21 @@ Deno.serve(async (req: Request) => {
   let body: unknown;
   try {
     const raw = await req.text();
-    if (encoder.encode(raw).length > 12_000) return json({ error: "Request too large." }, 413);
+    if (encoder.encode(raw).length > 12_000) return reply({ error: "Request too large." }, 413);
     body = JSON.parse(raw);
   } catch {
-    return json({ error: "Request body must be valid JSON." }, 400);
+    return reply({ error: "Request body must be valid JSON." }, 400);
   }
-  if (!isRecord(body) || typeof body.action !== "string") return json({ error: "An action is required." }, 400);
+  if (!isRecord(body) || typeof body.action !== "string") return reply({ error: "An action is required." }, 400);
 
   try {
     if (body.action === "challenge") {
       const signer = body.signerAccountId;
       if (typeof signer !== "string" || !/^[a-z0-9._-]+\.testnet$/.test(signer)) {
-        return json({ error: "Connect a valid NEAR Testnet account." }, 400);
+        return reply({ error: "Connect a valid NEAR Testnet account." }, 400);
       }
       const policy = await getPolicy(admin, user.id);
-      if (!policy) return json({ error: "Create and activate a security policy before requesting authorization." }, 409);
+      if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
       const evaluated = evaluateTestTransferPolicy(policy);
       const decision = {
         ...evaluated,
@@ -242,7 +249,7 @@ Deno.serve(async (req: Request) => {
       });
       if (decisionError) throw new Error("Could not record the policy decision");
       if (decision.outcome !== "ALLOW") {
-        return json({ error: decision.message, decision }, 403);
+        return reply({ error: decision.message, decision }, 403);
       }
       const digest = await actionDigest(signer);
       const nonce = crypto.getRandomValues(new Uint8Array(32));
@@ -269,7 +276,7 @@ Deno.serve(async (req: Request) => {
         p_action_digest: digest,
       });
       if (insertError) throw new Error("Could not create a secure wallet challenge");
-      return json({
+      return reply({
         challengeId, message, nonceHex, recipient: APP_RECIPIENT,
         intent: { ...TEST_TRANSFER, signerId: signer },
         decision, expiresInSeconds: 180,
@@ -282,30 +289,30 @@ Deno.serve(async (req: Request) => {
       if (typeof challengeId !== "string" || !isRecord(signed) ||
           typeof signed.accountId !== "string" || typeof signed.publicKey !== "string" ||
           typeof signed.signature !== "string") {
-        return json({ error: "A valid NEP-413 signed message is required." }, 400);
+        return reply({ error: "A valid NEP-413 signed message is required." }, 400);
       }
       const { data: challengeRows, error: challengeError } = await admin.rpc("get_near_transfer_challenge_v2", {
         p_owner_id: user.id, p_id: challengeId,
       });
       const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
-      if (challengeError || !challenge) return json({ error: "Challenge expired, missing, or already used." }, 409);
-      if (signed.accountId !== challenge.signer_account_id) return json({ error: "The signature account does not match the proposed sender." }, 403);
+      if (challengeError || !challenge) return reply({ error: "Challenge expired, missing, or already used." }, 409);
+      if (signed.accountId !== challenge.signer_account_id) return reply({ error: "The signature account does not match the proposed sender." }, 403);
 
       const accessKeys = await rpcViewAccessKeys(signed.accountId);
       const matchingKey = accessKeys.find((entry) => entry.public_key === signed.publicKey);
       if (!matchingKey || matchingKey.access_key?.permission !== "FullAccess") {
-        return json({ error: "The signing key is not a verified full-access key for this NEAR account." }, 403);
+        return reply({ error: "The signing key is not a verified full-access key for this NEAR account." }, 403);
       }
       const signatureValid = await verifyNep413(
         challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
         signed.publicKey, signed.signature,
       );
-      if (!signatureValid) return json({ error: "NEP-413 wallet signature verification failed." }, 403);
+      if (!signatureValid) return reply({ error: "NEP-413 wallet signature verification failed." }, 403);
 
       const policy = await getPolicy(admin, user.id);
       if (!policy || policy.id !== challenge.policy_id || policy.version !== challenge.policy_version ||
           evaluateTestTransferPolicy(policy).outcome !== "ALLOW") {
-        return json({ error: "The active policy changed or no longer permits this transfer. Start again." }, 409);
+        return reply({ error: "The active policy changed or no longer permits this transfer. Start again." }, 409);
       }
       const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
       const token = hex(tokenBytes);
@@ -313,8 +320,8 @@ Deno.serve(async (req: Request) => {
       const { data: finalized, error: finalizeError } = await admin.rpc("finalize_near_transfer_challenge_v2", {
         p_owner_id: user.id, p_id: challenge.id, p_token_hash: tokenHash,
       });
-      if (finalizeError || finalized !== true) return json({ error: "Challenge could not be finalized. No authorization was issued." }, 409);
-      return json({
+      if (finalizeError || finalized !== true) return reply({ error: "Challenge could not be finalized. No authorization was issued." }, 409);
+      return reply({
         authorized: true, receipt: token, expiresInSeconds: 90,
         intent: {
           network: challenge.network, signerId: challenge.signer_account_id,
@@ -329,9 +336,9 @@ Deno.serve(async (req: Request) => {
     if (body.action === "consume") {
       const { receipt, signerAccountId } = body;
       if (typeof receipt !== "string" || !/^[0-9a-f]{64}$/.test(receipt) ||
-          typeof signerAccountId !== "string") return json({ error: "Invalid authorization receipt." }, 400);
+          typeof signerAccountId !== "string") return reply({ error: "Invalid authorization receipt." }, 400);
       const policy = await getPolicy(admin, user.id);
-      if (!policy || evaluateTestTransferPolicy(policy).outcome !== "ALLOW") return json({ error: "The active policy no longer permits this transfer." }, 403);
+      if (!policy || evaluateTestTransferPolicy(policy).outcome !== "ALLOW") return reply({ error: "The active policy no longer permits this transfer." }, 403);
       const tokenHash = hex(await sha256(encoder.encode(receipt)));
       const digest = await actionDigest(signerAccountId);
       const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v2", {
@@ -341,24 +348,24 @@ Deno.serve(async (req: Request) => {
         p_amount_atomic: TEST_TRANSFER.amountAtomic, p_action_type: TEST_TRANSFER.actionType,
         p_action_digest: digest,
       });
-      if (consumeError || consumed !== true) return json({ error: "Authorization is expired, mismatched, replayed, or invalid." }, 409);
-      return json({ consumed: true, message: "One-time authorization consumed. The wallet may now request your explicit transaction approval." });
+      if (consumeError || consumed !== true) return reply({ error: "Authorization is expired, mismatched, replayed, or invalid." }, 409);
+      return reply({ consumed: true, message: "One-time authorization consumed. The wallet may now request your explicit transaction approval." });
     }
 
 
     if (body.action === "verify_transaction") {
       const { transactionHash, signerAccountId } = body;
       if (typeof transactionHash !== "string" || typeof signerAccountId !== "string" ||
-          !/^[a-z0-9._-]+\\.testnet$/.test(signerAccountId)) {
-        return json({ error: "A valid Testnet transaction hash and signer are required." }, 400);
+          !/^[a-z0-9._-]+\.testnet$/.test(signerAccountId)) {
+        return reply({ error: "A valid Testnet transaction hash and signer are required." }, 400);
       }
       const result = await verifyOnChainTransfer(transactionHash, signerAccountId);
-      return json(result);
+      return reply(result);
     }
 
-    return json({ error: "Unknown action." }, 400);
+    return reply({ error: "Unknown action." }, 400);
   } catch (error) {
     console.error("NEAR transfer authorization error:", error instanceof Error ? error.message : "unknown");
-    return json({ error: "Authorization service failed closed. No transaction was signed or sent." }, 503);
+    return reply({ error: "Authorization service failed closed. No transaction was signed or sent." }, 503);
   }
 });
