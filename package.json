@@ -1,0 +1,15 @@
+{
+  "name": "mandate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent authorization and security layer for autonomous AI financial agents",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
