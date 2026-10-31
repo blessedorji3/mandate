@@ -35,6 +35,23 @@ export async function POST(request: Request) {
     };
     const proposal = (body as { proposal: unknown }).proposal;
     const decision = evaluateAction(proposal, policy);
+    const proposalRecord = proposal && typeof proposal === "object" && !Array.isArray(proposal)
+      ? proposal as Record<string, unknown>
+      : {};
+    const { error: receiptError } = await supabase.from("authorization_decisions").insert({
+      owner_id: user.id,
+      policy_id: policy.id,
+      policy_version: policy.version,
+      proposal_id: decision.proposalId,
+      agent_id: typeof proposalRecord.agentId === "string" ? proposalRecord.agentId.slice(0, 128) : "unknown",
+      action_type: typeof proposalRecord.actionType === "string" ? proposalRecord.actionType.slice(0, 64) : "unknown",
+      outcome: decision.outcome,
+      reason: decision.reason,
+      proposal: proposalRecord
+    });
+    if (receiptError) {
+      return NextResponse.json({ error: "Decision could not be recorded. No action was authorized." }, { status: 500, headers: jsonHeaders });
+    }
     return NextResponse.json({ decision, policy: { id: policy.id, version: policy.version } }, { headers: jsonHeaders });
   } catch {
     return NextResponse.json({ error: "Could not inspect this proposal. No action was authorized." }, { status: 400, headers: jsonHeaders });
