@@ -25,6 +25,6 @@ export function parseNearTransferCommand(input: string): ParsedNearTransfer | nu
   return {
     amount: match[1],
     amountAtomic: amountAtomic.toString(),
-    target: match[2].toLowerCase()
+    target: match[2].replace(/\\.$/, "").toLowerCase()
   };
 }
