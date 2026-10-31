@@ -10,7 +10,7 @@ export type ParsedNearTransfer = {
 export function parseNearTransferCommand(input: string): ParsedNearTransfer | null {
   if (typeof input !== "string" || input.length > 200) return null;
 
-  const normalizedInput = input.trim().replace(/\\.$/, "");
+  const normalizedInput = input.trim().replace(/\.$/, "");
   const match = normalizedInput.match(
     /^(?:send|transfer)\s+([0-9]{1,14}(?:\.[0-9]{1,24})?)\s+near\s+to\s+([a-z0-9._-]{2,64})\.?$/i
   );
@@ -26,6 +26,6 @@ export function parseNearTransferCommand(input: string): ParsedNearTransfer | nu
   return {
     amount: match[1],
     amountAtomic: amountAtomic.toString(),
-    target: match[2].replace(/\\.$/, "").toLowerCase()
+    target: match[2].replace(/\.$/, "").toLowerCase()
   };
 }
