@@ -20,7 +20,17 @@ export default function Home() {
   const [result, setResult] = useState<Decision | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<Decision[]>([]);
-  const scenario = useMemo(() => scenarios.find((item) => item.id === selected) ?? scenarios[0], [selected]);\n\n  useEffect(() => {\n    fetch("/api/decisions").then(async response => {\n      const data = await response.json();\n      if (!response.ok) throw new Error(data.error ?? "History unavailable");\n      setHistory((data.decisions ?? []).map((item: { outcome: Outcome; reason: string; policy_id: string | null; policy_version: number; proposal_id: string; created_at: string }) => ({\n        outcome: item.outcome, reason: item.reason, message: "", policyId: item.policy_id ?? "unknown", policyVersion: item.policy_version, proposalId: item.proposal_id, createdAt: item.created_at\n      })));\n    }).catch(() => setHistory([]));\n  }, []);
+  const scenario = useMemo(() => scenarios.find((item) => item.id === selected) ?? scenarios[0], [selected]);
+
+  useEffect(() => {
+    fetch("/api/decisions").then(async response => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "History unavailable");
+      setHistory((data.decisions ?? []).map((item: { outcome: Outcome; reason: string; policy_id: string | null; policy_version: number; proposal_id: string; created_at: string }) => ({
+        outcome: item.outcome, reason: item.reason, message: "", policyId: item.policy_id ?? "unknown", policyVersion: item.policy_version, proposalId: item.proposal_id, createdAt: item.created_at
+      })));
+    }).catch(() => setHistory([]));
+  }, []);
 
   async function inspect() {
     setLoading(true);
