@@ -56,6 +56,13 @@ Deno.serve(async (req: Request) => {
     .select("id, owner_id").eq("key_hash", keyHash).is("revoked_at", null).maybeSingle();
   if (keyError || !keyRecord) return json({ error: "Invalid or revoked API key." }, 401);
 
+  const { data: withinQuota, error: quotaError } = await admin.rpc("consume_api_key_quota", {
+    p_key_id: keyRecord.id,
+    p_limit: 60
+  });
+  if (quotaError) return json({ error: "Rate limit service unavailable. No action is authorized." }, 503);
+  if (!withinQuota) return json({ error: "Rate limit exceeded. Maximum 60 requests per minute per API key." }, 429);
+
   let body: unknown;
   try {
     const text = await req.text();
