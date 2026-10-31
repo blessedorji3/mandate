@@ -7,3 +7,86 @@
 
 .policy-panel{margin-top:15px}.policy-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}.policy-fields>label{display:grid;gap:7px;color:#a5b1a8;font:10px 'DM Mono',monospace;letter-spacing:.3px}.policy-fields input:not([type=checkbox]){width:100%;border:1px solid #303a32;background:#0c100d;border-radius:7px;padding:11px;color:#edf2ee;font:11px 'DM Sans',sans-serif;outline:none}.policy-fields input:focus{border-color:#82bd43}.policy-fields .wide{grid-column:1/-1}.policy-checks{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:#a5b1a8;font-size:11px}.policy-checks strong{width:100%;font:10px 'DM Mono',monospace;color:#a5b1a8}.policy-checks label{display:flex;align-items:center;gap:7px;text-transform:capitalize}.policy-checks input[type=checkbox]{accent-color:#b8f36a}.policy-actions{display:flex;align-items:center;gap:15px;margin-top:15px}.policy-actions .inspect-button{width:auto;min-width:210px;margin:0}.policy-actions [role=status]{font-size:10px;color:#9cab9d;line-height:1.5}
 @media(max-width:600px){.policy-fields{grid-template-columns:1fr}.policy-fields .wide{grid-column:auto}.policy-actions{align-items:stretch;flex-direction:column}.policy-actions .inspect-button{width:100%}}
+
+/* Phone-first layout: replace the desktop icon rail with a compact, readable header. */
+@media (max-width: 760px) {
+  html, body { width: 100%; overflow-x: hidden; }
+  .shell { display: block; width: 100%; min-width: 0; }
+  .sidebar {
+    position: relative; inset: auto; width: 100%; height: auto; min-height: 0;
+    padding: 13px 14px 10px; display: flex; flex-direction: row; flex-wrap: wrap;
+    align-items: center; gap: 9px 12px; border-right: 0; border-bottom: 1px solid var(--line);
+  }
+  .sidebar .brand { width: 100%; justify-content: flex-start; }
+  .sidebar .workspace, .sidebar .nav-label, .sidebar .sidebar-bottom { display: none; }
+  .sidebar .nav-item, .sidebar .nav-item.active {
+    display: inline-flex; flex: 0 0 auto; width: auto; height: 34px; margin: 0;
+    padding: 0 9px; gap: 7px; font-size: 10px; white-space: nowrap;
+  }
+  .sidebar .nav-item > span { width: auto; font-size: 14px; }
+  .sidebar .nav-item i { display: none; }
+  .main-area { margin: 0; width: 100%; min-height: 0; }
+  .topbar { height: auto; min-height: 54px; padding: 9px 14px; gap: 9px; flex-wrap: wrap; }
+  .crumb { font-size: 10px; }
+  .top-actions { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .top-actions .outline-button { padding: 7px 9px; font-size: 9px; }
+  .env-pill { padding: 6px 8px; font-size: 8px; }
+  .content { width: 100%; max-width: none; margin: 0; padding: 22px 13px 24px; }
+  .welcome-row { align-items: flex-start; flex-direction: column; gap: 13px; margin-bottom: 22px; }
+  .welcome-row h1 { font-size: clamp(23px, 7vw, 30px); line-height: 1.15; }
+  .subheading { font-size: 11px; line-height: 1.55; max-width: 42ch; }
+  .outline-button { font-size: 10px; padding: 9px 11px; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 27px; }
+  .metric-card { min-width: 0; min-height: 102px; padding: 12px 11px; }
+  .metric-top { font-size: 8px; letter-spacing: .35px; gap: 4px; }
+  .metric-value { font-size: 21px; gap: 6px; flex-wrap: wrap; }
+  .metric-value small { font-size: 9px; }
+  .metric-card p { font-size: 9px; line-height: 1.4; }
+  .section-heading { align-items: flex-start; flex-direction: column; gap: 11px; }
+  .section-heading h2 { font-size: 18px; }
+  .section-copy { line-height: 1.55; }
+  .engine-badge { font-size: 8px; }
+  .lab-grid { grid-template-columns: minmax(0, 1fr); gap: 11px; }
+  .panel { min-width: 0; padding: 14px 12px; border-radius: 9px; }
+  .panel-heading { gap: 8px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 14px; }
+  .panel-heading > div { gap: 7px; }
+  .panel-heading h3 { font-size: 12px; }
+  .muted-tag { font-size: 8px; }
+  .scenario { min-width: 0; padding: 10px 9px; gap: 8px; }
+  .scenario-text { min-width: 0; }
+  .scenario-text strong { font-size: 11px; }
+  .scenario-text small { font-size: 9px; line-height: 1.4; }
+  .proposal-preview pre { font-size: 9px; overflow-wrap: anywhere; }
+  .decision-panel { min-height: 340px; }
+  .empty-decision { padding: 18px 10px 22px; }
+  .decision-legend { flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .result-wrap { padding: 16px 4px 18px; }
+  .reason-card { overflow-wrap: anywhere; }
+  .decision-foot { gap: 8px; flex-wrap: wrap; }
+  .decision-foot code { overflow-wrap: anywhere; }
+  .activity-panel { margin-top: 11px; }
+  .history-row { min-width: 0; gap: 8px; flex-wrap: wrap; }
+  .history-main { min-width: 0; flex: 1 1 65%; overflow-wrap: anywhere; }
+  .history-status { margin-left: 31px; }
+  .policy-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .policy-fields .wide { grid-column: auto; }
+  .policy-fields > label { min-width: 0; }
+  .policy-fields input:not([type=checkbox]) { min-width: 0; font-size: 12px; }
+  .policy-checks { align-items: flex-start; gap: 9px; line-height: 1.45; }
+  .policy-checks label { min-width: 0; }
+  .policy-actions { align-items: stretch; flex-direction: column; gap: 9px; }
+  .policy-actions .inspect-button { width: 100%; min-width: 0; }
+  .policy-actions [role=status] { overflow-wrap: anywhere; }
+  .footer { flex-direction: column; gap: 8px; padding-top: 20px; overflow-wrap: anywhere; }
+}
+@media (max-width: 380px) {
+  .content { padding-left: 10px; padding-right: 10px; }
+  .topbar { padding-left: 10px; padding-right: 10px; }
+  .top-actions { gap: 6px; }
+  .top-actions .user-avatar { display: none; }
+  .metrics { gap: 7px; }
+  .metric-card { padding: 10px 9px; }
+  .metric-top { font-size: 7px; }
+  .sidebar { gap: 7px; }
+  .sidebar .nav-item, .sidebar .nav-item.active { padding: 0 7px; font-size: 9px; }
+}
