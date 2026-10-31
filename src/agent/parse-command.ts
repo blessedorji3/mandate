@@ -10,7 +10,8 @@ export type ParsedNearTransfer = {
 export function parseNearTransferCommand(input: string): ParsedNearTransfer | null {
   if (typeof input !== "string" || input.length > 200) return null;
 
-  const match = input.trim().match(
+  const normalizedInput = input.trim().replace(/\\.$/, "");
+  const match = normalizedInput.match(
     /^(?:send|transfer)\s+([0-9]{1,14}(?:\.[0-9]{1,24})?)\s+near\s+to\s+([a-z0-9._-]{2,64})\.?$/i
   );
   if (!match) return null;
