@@ -131,3 +131,26 @@
 .agent-composer>small{display:block;color:#78877c;font-size:9px;line-height:1.5;margin-top:9px}
 .agent-prototype-note{color:#77847b;font-size:10px;line-height:1.6;text-align:center;margin:14px auto;max-width:720px}
 @media(max-width:560px){.agent-page-shell{padding:16px 10px}.agent-intro{margin-top:4px}.agent-chat-heading{padding:12px}.agent-chat-heading small{max-width:190px;line-height:1.4}.agent-messages{padding:13px;min-height:350px;max-height:55vh}.agent-message{max-width:94%}.agent-composer{padding:13px}.agent-composer>div{flex-direction:column}.agent-composer button{min-height:42px}.agent-boundary{font-size:9px}}
+
+
+/* MANDATE NEAR Testnet wallet connection */
+.near-wallet-panel{margin-top:18px;padding:clamp(16px,3vw,24px);min-width:0}
+.near-wallet-network{display:flex;align-items:center;gap:8px;margin:15px 0;padding:10px 12px;border:1px solid #344535;border-radius:7px;background:#101710;color:#b9d99e;font:10px 'DM Mono',monospace;letter-spacing:.5px}
+.near-wallet-network>span:nth-child(2){color:#68766b}
+.near-wallet-empty{display:grid;justify-items:center;text-align:center;padding:24px 12px 18px}
+.near-wallet-symbol{width:48px;height:48px;display:grid;place-items:center;border:1px solid #526b3e;border-radius:14px;background:#1b291b;color:#c0ed94;font:700 22px Manrope}
+.near-wallet-empty h3{margin:14px 0 6px;color:#e7eee8;font:600 17px Manrope}
+.near-wallet-empty p{max-width:520px;margin:0 auto 17px;color:#96a398;font-size:11px;line-height:1.7}
+.near-wallet-empty .inspect-button{width:min(100%,320px)}
+.near-wallet-connected{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid #415a38;border-radius:9px;background:#142015;min-width:0}
+.near-wallet-check{flex:0 0 32px;width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:#263c20;color:#b8ed8c;font-weight:700}
+.near-wallet-connected>div{display:grid;gap:5px;min-width:0;flex:1}
+.near-wallet-connected strong{font:600 12px Manrope;color:#dce8dc}
+.near-wallet-connected code{color:#a8c995;font:10px 'DM Mono',monospace;overflow-wrap:anywhere}
+.near-wallet-connected .outline-button{flex-shrink:0}
+.near-wallet-notice{margin:12px 0 0;color:#9baa9d;font-size:10px;line-height:1.5}
+.near-wallet-error{margin:9px 0 0;padding:10px;border:1px solid #633d3d;border-radius:7px;background:#211515;color:#f0a1a1;font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+.near-wallet-boundary{display:grid;gap:5px;margin-top:17px;padding:12px;border:1px solid #303a32;border-radius:8px;background:#0d120e}
+.near-wallet-boundary strong{font:10px 'DM Mono',monospace;color:#b8d99e;letter-spacing:.5px}
+.near-wallet-boundary span{color:#8d9b90;font-size:10px;line-height:1.6}
+@media(max-width:560px){.near-wallet-connected{align-items:flex-start;flex-wrap:wrap}.near-wallet-connected>div{flex-basis:calc(100% - 48px)}.near-wallet-connected .outline-button{width:100%}}
