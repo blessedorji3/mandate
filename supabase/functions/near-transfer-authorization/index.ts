@@ -11,7 +11,13 @@ const TEST_TRANSFER = {
   amountAtomic: "1000000000000000000000",
   actionType: "transfer",
 } as const;
-const headers = { "Cache-Control": "no-store" };
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "https://mandate-snowy.vercel.app",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Vary": "Origin",
+};
+const headers = { "Cache-Control": "no-store", ...corsHeaders };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers });
 const encoder = new TextEncoder();
 
@@ -131,7 +137,11 @@ function proposalId() {
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  if (req.headers.get("origin") !== "https://mandate-snowy.vercel.app") {
+    return json({ error: "Origin not allowed." }, 403);
+  }
   const user = await authenticate(req);
   if (!user) return json({ error: "Sign in to MANDATE before authorizing a transfer." }, 401);
   const admin = createClient(PROJECT_URL, SERVICE_KEY, {
