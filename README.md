@@ -48,3 +48,44 @@ Email confirmation should remain enabled. Configure the sender/SMTP only if a su
 ## CI
 
 GitHub Actions runs authorization tests, TypeScript type-checking, and a production build on pushes and pull requests to `main`.
+
+
+## Agent Developer API
+
+The Supabase Edge Function `agent-inspect` is the external agent endpoint:
+
+`https://abyyyehfivahedvjrcwj.supabase.co/functions/v1/agent-inspect`
+
+Create an API key in the authenticated dashboard under **Developer API**. The raw key is displayed once. Only its SHA-256 hash and short prefix are stored in the database. Keys can be revoked at any time.
+
+Send requests from a trusted agent backend (not browser code):
+
+```ts
+const response = await fetch(
+  "https://abyyyehfivahedvjrcwj.supabase.co/functions/v1/agent-inspect",
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.MANDATE_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      proposal: {
+        id: "proposal-001",
+        agentId: "my-agent",
+        actionType: "transfer",
+        asset: "NEAR",
+        amountAtomic: "200000000000000000000000",
+        target: "alice.near"
+      }
+    })
+  }
+);
+const result = await response.json();
+```
+
+The endpoint resolves the API key to its owner, loads that owner's active policy, applies deterministic fail-closed checks, and persists a decision receipt. Responses are `ALLOW`, `BLOCK`, or `REQUIRE_APPROVAL`. An `ALLOW` is not a signature or transaction execution authorization; no wallet is connected and this endpoint never moves funds.
+
+Supported inspection is currently limited to transfers and token approvals. Swaps and arbitrary contract calls are blocked as unsupported until their semantics can be decoded and verified.
+
+**Security:** The Edge Function uses Supabase's server-only secret key internally. It is never sent to the browser or committed to this repository. API keys are not user passwords; store them in a trusted backend secret manager and revoke them if exposed. This prototype does not yet include production rate limiting, usage quotas, or transaction execution.
