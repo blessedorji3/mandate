@@ -48,6 +48,8 @@ export function RecoveryLifecyclePanel() {
   const [notice, setNotice] = useState("Checking wallet recovery eligibility…");
   const [hasHistory, setHasHistory] = useState(false);
   const [codeEstablished, setCodeEstablished] = useState(false);
+  const [rotatedCode, setRotatedCode] = useState("");
+  const [copied, setCopied] = useState(false);
 
   async function refreshStatus() {
     const state = await recoveryRequest({ action: "recovery_lifecycle" });
@@ -189,7 +191,10 @@ export function RecoveryLifecyclePanel() {
         signedMessage,
       });
       setRequest(null);
-      setNotice(result.message || "Wallet recovery completed.");
+      if (typeof result.recoveryCode !== "string") throw new Error("Wallet recovery completed but MANDATE did not return the rotated recovery code. Contact support before continuing.");
+      setRotatedCode(result.recoveryCode);
+      setCodeEstablished(true);
+      setNotice(result.message || "Wallet recovery completed. Save your new recovery code.");
       await refreshStatus();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not finalize wallet recovery.");
@@ -258,6 +263,17 @@ export function RecoveryLifecyclePanel() {
           <button className="inspect-button" onClick={startRecovery} disabled={busy || !ready || !accountId || !recoveryCode.trim() || !codeEstablished}>
             {busy ? "Verifying recovery…" : "Start 24-hour wallet recovery →"}
           </button>
+        </div>
+      )}
+      {rotatedCode && (
+        <div className="recovery-code-reveal">
+          <strong>New recovery code — shown only once</strong>
+          <code>{rotatedCode}</code>
+          <button className="outline-button" onClick={async () => {
+            try { await navigator.clipboard.writeText(rotatedCode); setCopied(true); }
+            catch { setError("Clipboard access failed. Select and copy the recovery code manually."); }
+          }}>{copied ? "Copied ✓" : "Copy new recovery code"}</button>
+          <p>The previous recovery code is now invalid. Store this new code privately and securely.</p>
         </div>
       )}
       {error && <p className="near-wallet-error" role="alert">{error}</p>}
