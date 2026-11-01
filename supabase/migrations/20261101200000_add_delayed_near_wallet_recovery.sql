@@ -1287,3 +1287,103 @@ begin
      and p.max_amount_atomic::numeric>=1000000000000000000000::numeric);
  return found;
 end $$;
+
+
+-- Canonical final definitions for lifecycle operations (keep audit writes in the same transaction).
+create or replace function public.start_near_wallet_recovery_v1(
+ p_owner_id uuid,p_id uuid,p_code_hash_hex text
+) returns boolean language plpgsql security definer
+set search_path=pg_catalog,public,mandate_private as $$
+declare
+ c mandate_private.near_wallet_recovery_action_challenges%rowtype;
+ v_code_hash bytea;
+ v_attempts integer;
+begin
+ if p_owner_id is null or p_code_hash_hex !~ '^[0-9a-f]{64}$' then return false; end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
+ delete from mandate_private.near_wallet_recovery_code_attempts where attempted_at<now()-interval '24 hours';
+ select count(*) into v_attempts from mandate_private.near_wallet_recovery_code_attempts
+  where owner_id=p_owner_id and attempted_at>now()-interval '1 hour';
+ if v_attempts>=5 then return false; end if;
+ select code_hash into v_code_hash from mandate_private.near_wallet_recovery_credentials
+  where owner_id=p_owner_id and consumed_at is null for update;
+ insert into mandate_private.near_wallet_recovery_code_attempts(owner_id) values(p_owner_id);
+ if v_code_hash is null or v_code_hash<>decode(p_code_hash_hex,'hex') then return false; end if;
+ select * into c from mandate_private.near_wallet_recovery_action_challenges
+  where id=p_id and owner_id=p_owner_id and action='start' and consumed_at is null and expires_at>now()
+  for update;
+ if not found then return false; end if;
+ if exists(select 1 from mandate_private.near_wallet_recovery_requests where owner_id=p_owner_id and status='pending') then return false; end if;
+ insert into mandate_private.near_wallet_recovery_requests(id,owner_id,new_account_id,new_public_key,status,started_at,available_at)
+  values(c.request_id,p_owner_id,c.account_id,c.public_key,'pending',now(),now()+interval '24 hours');
+ update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now() where id=c.id;
+ insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
+  values(p_owner_id,c.request_id,'started',c.account_id);
+ update mandate_private.near_transfer_challenges set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ update mandate_private.near_transfer_receipts set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ return true;
+end $$;
+
+create or replace function public.cancel_near_wallet_recovery_v1(
+ p_owner_id uuid,p_request_id uuid,p_code_hash_hex text
+) returns boolean language plpgsql security definer
+set search_path=pg_catalog,public,mandate_private as $$
+declare v_code_hash bytea; v_attempts integer;
+begin
+ if p_owner_id is null or p_code_hash_hex !~ '^[0-9a-f]{64}$' then return false; end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
+ select count(*) into v_attempts from mandate_private.near_wallet_recovery_code_attempts
+  where owner_id=p_owner_id and attempted_at>now()-interval '1 hour';
+ if v_attempts>=5 then return false; end if;
+ select code_hash into v_code_hash from mandate_private.near_wallet_recovery_credentials
+  where owner_id=p_owner_id and consumed_at is null for update;
+ insert into mandate_private.near_wallet_recovery_code_attempts(owner_id) values(p_owner_id);
+ if v_code_hash is null or v_code_hash<>decode(p_code_hash_hex,'hex') then return false; end if;
+ update mandate_private.near_wallet_recovery_requests set status='cancelled',cancelled_at=now()
+  where id=p_request_id and owner_id=p_owner_id and status='pending';
+ if not found then return false; end if;
+ insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
+  select owner_id,id,'cancelled',new_account_id from mandate_private.near_wallet_recovery_requests
+  where id=p_request_id and owner_id=p_owner_id;
+ return true;
+end $$;
+
+create or replace function public.finalize_near_wallet_recovery_v1(
+ p_owner_id uuid,p_id uuid,p_new_code_hash_hex text
+) returns boolean language plpgsql security definer
+set search_path=pg_catalog,public,mandate_private as $$
+declare
+ c mandate_private.near_wallet_recovery_action_challenges%rowtype;
+ r mandate_private.near_wallet_recovery_requests%rowtype;
+begin
+ if p_owner_id is null or p_new_code_hash_hex !~ '^[0-9a-f]{64}$' then return false; end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
+ select * into c from mandate_private.near_wallet_recovery_action_challenges
+  where id=p_id and owner_id=p_owner_id and action='finalize' and consumed_at is null and expires_at>now() for update;
+ if not found then return false; end if;
+ select * into r from mandate_private.near_wallet_recovery_requests
+  where id=c.request_id and owner_id=p_owner_id and status='pending' for update;
+ if not found or r.available_at>now() or r.new_account_id<>c.account_id or r.new_public_key<>c.public_key then return false; end if;
+ if exists(select 1 from mandate_private.near_owner_wallets where account_id=r.new_account_id and revoked_at is null and owner_id<>p_owner_id) then
+  raise exception 'Replacement NEAR wallet is now active under another MANDATE account';
+ end if;
+ update mandate_private.near_owner_wallets set revoked_at=now() where owner_id=p_owner_id and revoked_at is null;
+ insert into mandate_private.near_owner_wallets(owner_id,account_id,public_key,verified_at,revoked_at)
+  values(p_owner_id,r.new_account_id,r.new_public_key,now(),null)
+  on conflict(owner_id,account_id) do update set public_key=excluded.public_key,verified_at=now(),revoked_at=null;
+ update mandate_private.near_wallet_recovery_requests set status='completed',completed_at=now()
+  where id=r.id and status='pending';
+ insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
+  values(p_owner_id,r.id,'completed',r.new_account_id);
+ update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now() where id=c.id and consumed_at is null;
+ update mandate_private.near_wallet_recovery_credentials
+  set code_hash=decode(p_new_code_hash_hex,'hex'),consumed_at=null,rotated_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ if not found then raise exception 'Active recovery credential disappeared during finalization'; end if;
+ update mandate_private.near_wallet_registration_challenges set consumed_at=now() where owner_id=p_owner_id and consumed_at is null;
+ update mandate_private.near_transfer_challenges set consumed_at=now() where owner_id=p_owner_id and consumed_at is null;
+ update mandate_private.near_transfer_receipts set consumed_at=now() where owner_id=p_owner_id and consumed_at is null;
+ return true;
+end $$;
