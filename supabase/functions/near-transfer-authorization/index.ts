@@ -273,6 +273,9 @@ Deno.serve(async (req: Request) => {
       if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
       const evaluated = evaluateTestTransferPolicy(policy);
       let decision: Record<string, unknown>;
+      if (body.proposalId !== undefined && typeof body.proposalId !== "string") {
+        return reply({ error: "Invalid inspected proposal reference." }, 400);
+      }
       if (typeof body.proposalId === "string") {
         if (!/^[a-zA-Z0-9_-]{1,128}$/.test(body.proposalId)) {
           return reply({ error: "Invalid inspected proposal reference." }, 400);
@@ -287,6 +290,7 @@ Deno.serve(async (req: Request) => {
             inspected.policy_version !== policy.version ||
             !["ALLOW", "REQUIRE_APPROVAL"].includes(inspected.outcome) ||
             !isRecord(inspected.proposal) ||
+            inspected.proposal.id !== inspected.proposal_id ||
             inspected.proposal.actionType !== "transfer" ||
             inspected.proposal.asset !== "NEAR" ||
             inspected.proposal.amountAtomic !== TEST_TRANSFER.amountAtomic ||
