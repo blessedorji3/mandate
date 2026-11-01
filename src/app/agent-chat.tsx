@@ -17,9 +17,11 @@ type Message = {
   role: "user" | "mandate";
   text: string;
   decision?: Decision;
+  walletProposalId?: string;
 };
 
 import { parseNearTransferCommand } from "@/agent/parse-command";
+import { NearWalletPanel } from "@/app/near-wallet-panel";
 
 export function AgentChat() {
   const [input, setInput] = useState("");
@@ -28,7 +30,7 @@ export function AgentChat() {
     {
       id: "welcome",
       role: "mandate",
-      text: "I'm the MANDATE chat prototype. Try: “Send 0.1 NEAR to alice.near”. I'll prepare the proposal and ask the policy engine to inspect it. I cannot sign or send funds."
+      text: "I'm the MANDATE chat prototype. Try: “Send 0.001 NEAR to confirmwithmandate.testnet”. I'll inspect the proposal and, when eligible, let you explicitly sign the owner approval and transaction in your NEAR wallet."
     }
   ]);
 
@@ -58,7 +60,8 @@ export function AgentChat() {
       actionType: "transfer",
       asset: "NEAR",
       amountAtomic: parsed.amountAtomic,
-      target: parsed.target
+      target: parsed.target,
+      network: "testnet"
     };
 
     try {
@@ -71,17 +74,26 @@ export function AgentChat() {
       if (!response.ok) throw new Error(data.error ?? "The inspection service is unavailable.");
 
       const decision = data.decision as Decision;
+      const isExactWalletTest = parsed.amountAtomic === "1000000000000000000000" &&
+        parsed.target === "confirmwithmandate.testnet";
+      const canShowWalletApproval = isExactWalletTest &&
+        (decision.outcome === "ALLOW" || decision.outcome === "REQUIRE_APPROVAL");
       const explanation = decision.outcome === "ALLOW"
-        ? "The active policy passed this proposal. This is an inspection result only; no wallet was called and no funds were moved."
+        ? (canShowWalletApproval
+            ? "The active policy passed this exact Testnet proposal. You can now request wallet verification and explicitly approve the transfer."
+            : "The active policy passed inspection, but this proposal is outside the fixed wallet execution test. No funds were moved.")
         : decision.outcome === "BLOCK"
           ? "MANDATE stopped this proposal. No execution was attempted."
-          : "The policy requires owner confirmation. This prototype records the requirement but does not execute or approve the transfer.";
+          : (canShowWalletApproval
+              ? "The policy requires owner confirmation. Sign the proposal-specific approval message in your connected NEAR wallet before the wallet can request the transfer."
+              : "The policy requires owner confirmation, but this proposal is outside the fixed wallet execution test. It cannot be signed or executed through this prototype.");
 
       setMessages(current => [...current, {
         id: crypto.randomUUID(),
         role: "mandate",
         text: `I checked a transfer of ${parsed.amount} NEAR to ${parsed.target}. ${explanation}`,
-        decision
+        decision,
+        ...(canShowWalletApproval ? { walletProposalId: decision.proposalId } : {})
       }]);
     } catch (error) {
       setMessages(current => [...current, {
@@ -121,6 +133,12 @@ export function AgentChat() {
                   <small>Policy version {message.decision.policyVersion} · Ref {message.decision.proposalId}</small>
                 </div>
               )}
+              {message.walletProposalId && (
+                <div className="agent-wallet-approval">
+                  <p>Exact supported test transaction: 0.001 NEAR to confirmwithmandate.testnet (NEAR Testnet).</p>
+                  <NearWalletPanel proposalId={message.walletProposalId} />
+                </div>
+              )}
             </div>
           ))}
           {busy && <div className="agent-typing">MANDATE is inspecting the proposal…</div>}
@@ -128,7 +146,7 @@ export function AgentChat() {
 
         <form className="agent-composer" onSubmit={submit}>
           <label htmlFor="agent-command">Your instruction</label>
-          <div><input id="agent-command" value={input} onChange={event => setInput(event.target.value)} placeholder="Send 0.1 NEAR to alice.near" disabled={busy} autoComplete="off" /><button type="submit" disabled={busy || !input.trim()}>{busy ? "Checking…" : "Inspect →"}</button></div>
+          <div><input id="agent-command" value={input} onChange={event => setInput(event.target.value)} placeholder="Send 0.001 NEAR to confirmwithmandate.testnet" disabled={busy} autoComplete="off" /><button type="submit" disabled={busy || !input.trim()}>{busy ? "Checking…" : "Inspect →"}</button></div>
           <small>Supported in this first prototype: NEAR transfers only. Do not enter private keys or recovery phrases.</small>
         </form>
       </div>
