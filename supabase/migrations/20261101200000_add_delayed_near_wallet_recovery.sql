@@ -168,18 +168,6 @@ $$;
 
 
 
-revoke all on function public.get_near_wallet_recovery_lifecycle_v1(uuid) from public,anon,authenticated;
-revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public,anon,authenticated;
-revoke all on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) from public,anon,authenticated;
-revoke all on function public.start_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-grant execute on function public.get_near_wallet_recovery_lifecycle_v1(uuid) to service_role;
-grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
-grant execute on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) to service_role;
-grant execute on function public.start_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
 
 
 -- Freeze policy authorization at the database boundary while recovery is pending.
@@ -200,18 +188,6 @@ grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text
 
 
 
-revoke all on function public.get_near_wallet_recovery_lifecycle_v1(uuid) from public,anon,authenticated;
-revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public,anon,authenticated;
-revoke all on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) from public,anon,authenticated;
-revoke all on function public.start_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-grant execute on function public.get_near_wallet_recovery_lifecycle_v1(uuid) to service_role;
-grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
-grant execute on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) to service_role;
-grant execute on function public.start_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
 
 
 -- Freeze policy authorization at the database boundary while recovery is pending.
@@ -232,18 +208,6 @@ grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text
 
 
 
-revoke all on function public.get_near_wallet_recovery_lifecycle_v1(uuid) from public,anon,authenticated;
-revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public,anon,authenticated;
-revoke all on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) from public,anon,authenticated;
-revoke all on function public.start_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-grant execute on function public.get_near_wallet_recovery_lifecycle_v1(uuid) to service_role;
-grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
-grant execute on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) to service_role;
-grant execute on function public.start_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
 
 
 -- Freeze policy authorization at the database boundary while recovery is pending.
@@ -272,18 +236,6 @@ $$;
 
 
 
-revoke all on function public.get_near_wallet_recovery_lifecycle_v1(uuid) from public,anon,authenticated;
-revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public,anon,authenticated;
-revoke all on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) from public,anon,authenticated;
-revoke all on function public.start_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-grant execute on function public.get_near_wallet_recovery_lifecycle_v1(uuid) to service_role;
-grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
-grant execute on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) to service_role;
-grant execute on function public.start_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
 
 
 -- Freeze policy authorization at the database boundary while recovery is pending.
@@ -528,3 +480,17 @@ begin
  update mandate_private.near_transfer_receipts set consumed_at=now() where owner_id=p_owner_id and consumed_at is null;
  return true;
 end $$;
+
+
+revoke all on function public.get_near_wallet_recovery_lifecycle_v1(uuid) from public,anon,authenticated;
+revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public,anon,authenticated;
+revoke all on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) from public,anon,authenticated;
+revoke all on function public.start_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
+revoke all on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
+revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.get_near_wallet_recovery_lifecycle_v1(uuid) to service_role;
+grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
+grant execute on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) to service_role;
+grant execute on function public.start_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
+grant execute on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
+grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
