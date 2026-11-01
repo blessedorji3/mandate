@@ -229,7 +229,7 @@ function proposalId() {
   return "near-test-" + crypto.randomUUID();
 }
 
-Deno.serve(async (req: Request) => {
+export async function handleRequest(req: Request) {
   const origin = req.headers.get("origin") ?? "";
   const reply = (body: unknown, status = 200) => json(body, status, origin);
   if (req.method === "OPTIONS") return new Response("ok", { headers: responseHeaders(origin) });
@@ -863,4 +863,8 @@ Deno.serve(async (req: Request) => {
     }
     return reply({ error: detail || "Authorization service unavailable. No transaction was submitted by this request." }, 503);
   }
-});
+}
+
+if (import.meta.main) {
+  Deno.serve(handleRequest);
+}
