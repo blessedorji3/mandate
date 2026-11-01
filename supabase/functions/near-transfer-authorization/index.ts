@@ -202,6 +202,18 @@ async function verifyOnChainTransfer(transactionHash: string, signerAccountId: s
       !("SuccessValue" in status || "SuccessReceiptId" in status) || "Failure" in status) {
     throw new Error("The NEAR Testnet transaction did not complete successfully");
   }
+  const blockHash = result.transaction_outcome?.block_hash;
+  if (typeof blockHash !== "string" || base58Decode(blockHash).length !== 32) {
+    throw new Error("The finalized transaction did not include a verifiable block reference");
+  }
+  const block = await nearTestnetRpc({
+    jsonrpc: "2.0", id: "mandate-verify-transfer-block", method: "block",
+    params: { block_id: blockHash },
+  }, "NEAR Testnet transaction block verification");
+  const blockTimestampNs = block.header?.timestamp_nanosec;
+  if (typeof blockTimestampNs !== "string" || !/^[0-9]+$/.test(blockTimestampNs)) {
+    throw new Error("The finalized transaction block timestamp could not be verified");
+  }
   return {
     verified: true,
     transactionHash,
@@ -209,6 +221,7 @@ async function verifyOnChainTransfer(transactionHash: string, signerAccountId: s
     receiverId: tx.receiver_id,
     amountAtomic: TEST_TRANSFER.amountAtomic,
     network: "testnet",
+    blockTimestampNs,
     status,
   };
 }
@@ -395,6 +408,7 @@ Deno.serve(async (req: Request) => {
         p_token_hash: tokenHash,
         p_signer_account_id: signerAccountId,
         p_transaction_hash: transactionHash,
+        p_transaction_timestamp_ns: result.blockTimestampNs,
       });
       if (bindError || bound !== true) {
         return reply({
