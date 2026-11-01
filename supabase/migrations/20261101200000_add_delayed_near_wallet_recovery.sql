@@ -217,64 +217,65 @@ begin
 end;
 $$;
 
-create or replace function public.finalize_near_wallet_recovery_v1(p_owner_id uuid,p_id uuid)
-returns boolean
-language plpgsql security definer
-set search_path = pg_catalog, public, mandate_private
-as $$
+create or replace function public.finalize_near_wallet_recovery_v1(
+ p_owner_id uuid,p_id uuid,p_new_code_hash_hex text
+) returns boolean language plpgsql security definer
+set search_path=pg_catalog,public,mandate_private as $$
 declare
   c mandate_private.near_wallet_recovery_action_challenges%rowtype;
   r mandate_private.near_wallet_recovery_requests%rowtype;
 begin
-  if p_owner_id is null then return false; end if;
-  perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
-  select * into c from mandate_private.near_wallet_recovery_action_challenges
-    where id=p_id and owner_id=p_owner_id and action='finalize' and consumed_at is null and expires_at>now()
-    for update;
-  if not found then return false; end if;
-  select * into r from mandate_private.near_wallet_recovery_requests
-    where id=c.request_id and owner_id=p_owner_id and status='pending'
-    for update;
-  if not found or r.available_at>now()
-     or r.new_account_id<>c.account_id or r.new_public_key<>c.public_key then return false; end if;
-  if exists(select 1 from mandate_private.near_owner_wallets
-    where account_id=r.new_account_id and revoked_at is null and owner_id<>p_owner_id) then
-    raise exception 'Replacement NEAR wallet is now active under another MANDATE account';
-  end if;
-  update mandate_private.near_owner_wallets set revoked_at=now()
-    where owner_id=p_owner_id and revoked_at is null;
-  insert into mandate_private.near_owner_wallets(owner_id,account_id,public_key,verified_at,revoked_at)
-    values(p_owner_id,r.new_account_id,r.new_public_key,now(),null)
-    on conflict(owner_id,account_id) do update
-      set public_key=excluded.public_key,verified_at=now(),revoked_at=null;
-  update mandate_private.near_wallet_recovery_requests
-    set status='completed',completed_at=now() where id=r.id and status='pending';
-  update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
-    where id=c.id and consumed_at is null;
-  update mandate_private.near_wallet_recovery_credentials set consumed_at=now(),rotated_at=now()
-    where owner_id=p_owner_id and consumed_at is null;
-  update mandate_private.near_wallet_registration_challenges set consumed_at=now()
-    where owner_id=p_owner_id and consumed_at is null;
-  update mandate_private.near_transfer_challenges set consumed_at=now()
-    where owner_id=p_owner_id and consumed_at is null;
-  update mandate_private.near_transfer_receipts set consumed_at=now()
-    where owner_id=p_owner_id and consumed_at is null;
-  return true;
-end;
-$$;
+ if p_owner_id is null or p_new_code_hash_hex !~ '^[0-9a-f]{64}$' then return false; end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
+ select * into c from mandate_private.near_wallet_recovery_action_challenges
+  where id=p_id and owner_id=p_owner_id and action='finalize'
+   and consumed_at is null and expires_at>now() for update;
+ if not found then return false; end if;
+ select * into r from mandate_private.near_wallet_recovery_requests
+  where id=c.request_id and owner_id=p_owner_id and status='pending' for update;
+ if not found or r.available_at>now()
+  or r.new_account_id<>c.account_id or r.new_public_key<>c.public_key then return false; end if;
+ if exists(select 1 from mandate_private.near_owner_wallets
+  where account_id=r.new_account_id and revoked_at is null and owner_id<>p_owner_id) then
+  raise exception 'Replacement NEAR wallet is now active under another MANDATE account';
+ end if;
+ -- Revoke old sender and activate the new one atomically under the owner lock.
+ update mandate_private.near_owner_wallets set revoked_at=now()
+  where owner_id=p_owner_id and revoked_at is null;
+ insert into mandate_private.near_owner_wallets(owner_id,account_id,public_key,verified_at,revoked_at)
+  values(p_owner_id,r.new_account_id,r.new_public_key,now(),null)
+  on conflict(owner_id,account_id) do update
+   set public_key=excluded.public_key,verified_at=now(),revoked_at=null;
+ update mandate_private.near_wallet_recovery_requests
+  set status='completed',completed_at=now() where id=r.id and status='pending';
+ update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
+  where id=c.id and consumed_at is null;
+ -- Rotate the independent factor atomically; old code immediately becomes invalid.
+ update mandate_private.near_wallet_recovery_credentials
+  set code_hash=decode(p_new_code_hash_hex,'hex'),consumed_at=null,rotated_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ if not found then raise exception 'Active recovery credential disappeared during finalization'; end if;
+ update mandate_private.near_wallet_registration_challenges set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ update mandate_private.near_transfer_challenges set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ update mandate_private.near_transfer_receipts set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ return true;
+end $$;
 
 revoke all on function public.get_near_wallet_recovery_lifecycle_v1(uuid) from public,anon,authenticated;
 revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public,anon,authenticated;
 revoke all on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) from public,anon,authenticated;
 revoke all on function public.start_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
 revoke all on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
-revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid) from public,anon,authenticated;
+revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public,anon,authenticated;
 grant execute on function public.get_near_wallet_recovery_lifecycle_v1(uuid) to service_role;
 grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
 grant execute on function public.get_near_wallet_recovery_action_challenge_v1(uuid,uuid) to service_role;
 grant execute on function public.start_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
 grant execute on function public.cancel_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid) to service_role;
+grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
 
 
 -- Freeze policy authorization at the database boundary while recovery is pending.
