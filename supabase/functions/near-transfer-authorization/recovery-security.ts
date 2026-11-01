@@ -111,3 +111,18 @@ export function isDifferentReplacementWallet(activeAccountId: unknown, replaceme
 }
 
 export const recoveryTestUtils = { base58Encode };
+
+export interface NearAccessKey {
+  public_key: string;
+  access_key?: { permission?: unknown } | null;
+}
+
+export function findActiveFullAccessKey(
+  keys: NearAccessKey[],
+  expectedPublicKey?: string,
+): NearAccessKey | null {
+  return keys.find((entry) =>
+    (expectedPublicKey === undefined || entry.public_key === expectedPublicKey) &&
+    entry.access_key?.permission === "FullAccess"
+  ) ?? null;
+}
