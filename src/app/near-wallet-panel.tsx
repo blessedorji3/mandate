@@ -148,7 +148,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
 
   async function registerOwnerWallet() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || busy || txHash) return;
+    if (!connector || !accountId || busy || txHash) return;
     setBusy(true); setError(""); setNotice("Creating a one-time wallet ownership challenge…");
     try {
       const challenge = await authorizationRequest({ action: "register_wallet_challenge", accountId });
@@ -196,7 +196,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
 
   async function executeTestTransfer() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || busy || txHash) return;
+    if (!connector || !accountId || !walletRegistered || busy || txHash) return;
     setBusy(true);
     setError("");
     setNotice("Checking your active MANDATE policy…");
