@@ -50,14 +50,14 @@ begin
     raise exception 'Wallet registration rate limit exceeded';
   end if;
 
+  -- A normal registration is permitted only for an owner with no wallet history.
+  -- Even a fully revoked wallet must be replaced through independent-factor recovery.
   if exists (
     select 1
     from mandate_private.near_owner_wallets
     where owner_id = p_owner_id
-      and revoked_at is null
-      and account_id <> p_account_id
   ) then
-    raise exception 'A NEAR sender wallet is already active for this MANDATE account. Use the official wallet recovery process to replace it.';
+    raise exception 'This MANDATE account has previous NEAR wallet history. Complete the official independent-factor wallet recovery process before registering a replacement.';
   end if;
 
   if exists (
@@ -109,14 +109,14 @@ begin
     return false;
   end if;
 
+  -- Re-check at completion: an older challenge must not bypass a wallet
+  -- registration or revocation/recovery event that happened after challenge creation.
   if exists (
     select 1
     from mandate_private.near_owner_wallets
     where owner_id = p_owner_id
-      and revoked_at is null
-      and account_id <> c.account_id
   ) then
-    raise exception 'A NEAR sender wallet is already active for this MANDATE account. Use the official wallet recovery process to replace it.';
+    raise exception 'This MANDATE account has previous NEAR wallet history. Complete the official independent-factor wallet recovery process before registering a replacement.';
   end if;
 
   update mandate_private.near_wallet_registration_challenges
