@@ -195,3 +195,61 @@
   font-size: 13px;
   line-height: 1.6;
 }
+
+
+/* Delayed wallet recovery lifecycle */
+.recovery-lifecycle-panel {
+  margin-top: 22px;
+}
+.recovery-pending {
+  display: grid;
+  gap: 13px;
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid rgba(230,180,80,.32);
+  border-radius: 12px;
+  background: rgba(150,105,30,.08);
+}
+.recovery-pending p {
+  margin: 0;
+  color: var(--muted, #9aa5b1);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.recovery-pending label,
+.recovery-lifecycle-panel label {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-primary, #f4f5f7);
+  font-size: 13px;
+  font-weight: 600;
+}
+.recovery-pending input,
+.recovery-lifecycle-panel input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 10px;
+  background: var(--panel, #111820);
+  color: var(--text-primary, #f4f5f7);
+  font: inherit;
+}
+.recovery-countdown {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.22);
+}
+.recovery-countdown span {
+  color: var(--muted, #9aa5b1);
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+.recovery-countdown strong {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(26px, 6vw, 36px);
+  letter-spacing: .04em;
+}
