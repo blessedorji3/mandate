@@ -366,5 +366,58 @@ select ok(
  'cancellation preserves the existing active wallet'
 );
 
+-- Recovery-code verification is rate limited across both start and cancellation attempts.
+select is(
+ public.cancel_near_wallet_recovery_v1(
+  '10000000-0000-4000-8000-000000000002',
+  '70000000-0000-4000-8000-000000000002',repeat('9',64)
+ ),
+ false,'fifth recovery-code attempt is recorded and rejected'
+);
+select is(
+ public.cancel_near_wallet_recovery_v1(
+  '10000000-0000-4000-8000-000000000002',
+  '70000000-0000-4000-8000-000000000002',repeat('4',64)
+ ),
+ false,'sixth recovery-code attempt is rate-limited even with the correct code'
+);
+
+-- Recovery challenge creation is limited to five challenges per owner per hour.
+select public.create_near_wallet_recovery_action_challenge_v1(
+ '10000000-0000-4000-8000-000000000002',
+ gen_random_uuid(),'70000000-0000-4000-8000-000000000099',
+ 'start','new-wallet-b.testnet','ed25519:' || repeat('4',44),
+ repeat('b',64),'rate-limit fixture one'
+);
+select public.create_near_wallet_recovery_action_challenge_v1(
+ '10000000-0000-4000-8000-000000000002',
+ gen_random_uuid(),'70000000-0000-4000-8000-000000000099',
+ 'start','new-wallet-b.testnet','ed25519:' || repeat('4',44),
+ repeat('c',64),'rate-limit fixture two'
+);
+select public.create_near_wallet_recovery_action_challenge_v1(
+ '10000000-0000-4000-8000-000000000002',
+ gen_random_uuid(),'70000000-0000-4000-8000-000000000099',
+ 'start','new-wallet-b.testnet','ed25519:' || repeat('4',44),
+ repeat('d',64),'rate-limit fixture three'
+);
+select public.create_near_wallet_recovery_action_challenge_v1(
+ '10000000-0000-4000-8000-000000000002',
+ gen_random_uuid(),'70000000-0000-4000-8000-000000000099',
+ 'start','new-wallet-b.testnet','ed25519:' || repeat('4',44),
+ repeat('e',64),'rate-limit fixture four'
+);
+select throws_ok(
+ $select public.create_near_wallet_recovery_action_challenge_v1(
+  '10000000-0000-4000-8000-000000000002',
+  gen_random_uuid(),'70000000-0000-4000-8000-000000000099',
+  'start','new-wallet-b.testnet','ed25519:' || repeat('4',44),
+  repeat('f',64),'rate-limit fixture five'
+ )$,
+ 'P0001',
+ 'Wallet recovery challenge rate limit exceeded',
+ 'sixth recovery challenge within one hour is rejected'
+);
+
 select * from finish();
 rollback;
