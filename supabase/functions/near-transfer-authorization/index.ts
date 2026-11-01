@@ -275,6 +275,152 @@ Deno.serve(async (req: Request) => {
       } : null });
     }
 
+    if (body.action === "recovery_setup_status") {
+      const { data, error } = await admin.rpc("get_near_wallet_recovery_status_v1", {
+        p_owner_id: user.id,
+      });
+      if (error) throw new Error("Could not check MANDATE recovery status");
+      const status = Array.isArray(data) ? data[0] : data;
+      const { data: history, error: historyError } = await admin.rpc(
+        "list_near_wallet_recovery_historical_wallets_v1",
+        { p_owner_id: user.id },
+      );
+      if (historyError) throw new Error("Could not load historical wallet verification options");
+      return reply({
+        established: status?.code_established === true,
+        consumed: status?.code_consumed === true,
+        hasWalletHistory: status?.has_wallet_history === true,
+        historicalWallets: (Array.isArray(history) ? history : []).map((wallet: Record<string, unknown>) => ({
+          accountId: wallet.account_id,
+          revoked: wallet.revoked_at !== null,
+        })),
+      });
+    }
+
+    if (body.action === "recovery_setup_challenge") {
+      const { data: statusRows, error: statusError } = await admin.rpc(
+        "get_near_wallet_recovery_status_v1", { p_owner_id: user.id },
+      );
+      if (statusError) throw new Error("Could not check MANDATE recovery status");
+      const status = Array.isArray(statusRows) ? statusRows[0] : statusRows;
+      if (status?.code_established === true) {
+        return reply({ error: "A MANDATE recovery code is already established. It cannot be displayed again." }, 409);
+      }
+
+      const { data: historyRows, error: historyError } = await admin.rpc(
+        "list_near_wallet_recovery_historical_wallets_v1", { p_owner_id: user.id },
+      );
+      if (historyError) throw new Error("Could not verify wallet history");
+      const history = Array.isArray(historyRows) ? historyRows : [];
+      const historicalAccountId = body.historicalAccountId;
+      if (history.length > 0 && (
+        typeof historicalAccountId !== "string" ||
+        !history.some((wallet: Record<string, unknown>) => wallet.account_id === historicalAccountId)
+      )) {
+        return reply({ error: "Choose a wallet previously registered to this MANDATE account to prove existing-account ownership." }, 400);
+      }
+      if (history.length === 0 && historicalAccountId !== undefined && historicalAccountId !== null) {
+        return reply({ error: "This new account does not have historical wallet proof to provide." }, 400);
+      }
+
+      const challengeId = crypto.randomUUID();
+      const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const message = [
+        "MANDATE INDEPENDENT RECOVERY CODE ENROLLMENT",
+        "This signature proves control of a previously registered NEAR wallet. It does not move funds.",
+        `MANDATE owner: ${user.id}`,
+        `Historical NEAR account: ${historicalAccountId ?? "NONE — FIRST WALLET ENROLLMENT"}`,
+        `Challenge: ${challengeId}`,
+        `Nonce: ${nonceHex}`,
+      ].join("\\n");
+      const { error } = await admin.rpc("create_near_wallet_recovery_setup_challenge_v1", {
+        p_owner_id: user.id,
+        p_id: challengeId,
+        p_historical_account_id: historicalAccountId ?? null,
+        p_nonce_hex: nonceHex,
+        p_message: message,
+      });
+      if (error) throw new Error(error.message || "Could not create recovery setup challenge");
+      return reply({
+        challengeId, message, nonceHex, recipient: APP_RECIPIENT,
+        historicalAccountId: historicalAccountId ?? null,
+        requiresWalletSignature: history.length > 0,
+        expiresInSeconds: 300,
+      });
+    }
+
+    if (body.action === "recovery_setup_verify") {
+      const { challengeId, signedMessage } = body;
+      if (typeof challengeId !== "string") {
+        return reply({ error: "A valid recovery setup challenge is required." }, 400);
+      }
+      const { data: challengeRows, error: challengeError } = await admin.rpc(
+        "get_near_wallet_recovery_setup_challenge_v1",
+        { p_owner_id: user.id, p_id: challengeId },
+      );
+      const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
+      if (challengeError || !challenge) {
+        return reply({ error: "Recovery setup challenge expired, missing, or already used." }, 409);
+      }
+
+      let verifiedHistoricalAccountId: string | null = null;
+      if (challenge.historical_account_id !== null) {
+        if (!isRecord(signedMessage) ||
+            typeof signedMessage.accountId !== "string" ||
+            typeof signedMessage.publicKey !== "string" ||
+            typeof signedMessage.signature !== "string" ||
+            signedMessage.accountId !== challenge.historical_account_id) {
+          return reply({ error: "Sign the recovery setup message with the selected historical NEAR wallet." }, 400);
+        }
+        const { data: historyRows, error: historyError } = await admin.rpc(
+          "list_near_wallet_recovery_historical_wallets_v1", { p_owner_id: user.id },
+        );
+        const history = Array.isArray(historyRows) ? historyRows : [];
+        const historicalWallet = history.find((wallet: Record<string, unknown>) =>
+          wallet.account_id === challenge.historical_account_id &&
+          wallet.public_key === signedMessage.publicKey
+        );
+        if (historyError || !historicalWallet) {
+          return reply({ error: "The signing key is not the historical key recorded for this MANDATE account." }, 403);
+        }
+        const accessKeys = await rpcViewAccessKeys(signedMessage.accountId);
+        const matchingKey = accessKeys.find((entry) => entry.public_key === signedMessage.publicKey);
+        if (!matchingKey || matchingKey.access_key?.permission !== "FullAccess") {
+          return reply({ error: "The historical signing key is no longer a full-access key for this NEAR account." }, 403);
+        }
+        const valid = await verifyNep413(
+          challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+          signedMessage.publicKey, signedMessage.signature,
+        );
+        if (!valid) return reply({ error: "Recovery enrollment NEP-413 signature verification failed." }, 403);
+        verifiedHistoricalAccountId = challenge.historical_account_id;
+      } else if (signedMessage !== undefined && signedMessage !== null) {
+        return reply({ error: "This first-wallet recovery setup does not accept an unrelated wallet signature." }, 400);
+      }
+
+      // 256 bits of cryptographically secure entropy. The plaintext is returned
+      // once to the authenticated owner and is never written to the database.
+      const recoveryCode = `MND-${hex(crypto.getRandomValues(new Uint8Array(32))).toUpperCase()}`;
+      const codeHash = hex(await sha256(encoder.encode(recoveryCode)));
+      const { data: completed, error: completeError } = await admin.rpc(
+        "complete_near_wallet_recovery_setup_v1",
+        {
+          p_owner_id: user.id,
+          p_id: challenge.id,
+          p_code_hash_hex: codeHash,
+          p_verified_historical_account_id: verifiedHistoricalAccountId,
+        },
+      );
+      if (completeError || completed !== true) {
+        return reply({ error: completeError?.message || "Recovery code could not be established." }, 409);
+      }
+      return reply({
+        established: true,
+        recoveryCode,
+        message: "Save this recovery code now. MANDATE will never display it again.",
+      });
+    }
+
     if (body.action === "register_wallet_challenge") {
       const accountId = body.accountId;
       if (typeof accountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(accountId)) {
