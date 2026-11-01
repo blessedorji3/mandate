@@ -416,8 +416,12 @@ begin
   where owner_id=p_owner_id and consumed_at is null;
  update mandate_private.near_transfer_receipts set consumed_at=now()
   where owner_id=p_owner_id and consumed_at is null;
+ update mandate_private.near_wallet_registration_challenges set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
+ update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
  return true;
-end $$;
+end $;
 
 create or replace function public.cancel_near_wallet_recovery_v1(
  p_owner_id uuid,p_request_id uuid,p_code_hash_hex text
@@ -440,8 +444,10 @@ begin
  insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
   select owner_id,id,'cancelled',new_account_id from mandate_private.near_wallet_recovery_requests
   where id=p_request_id and owner_id=p_owner_id;
+ update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
  return true;
-end $$;
+end $;
 
 create or replace function public.finalize_near_wallet_recovery_v1(
  p_owner_id uuid,p_id uuid,p_new_code_hash_hex text
@@ -470,7 +476,8 @@ begin
   where id=r.id and status='pending';
  insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
   values(p_owner_id,r.id,'completed',r.new_account_id);
- update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now() where id=c.id and consumed_at is null;
+ update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
+  where owner_id=p_owner_id and consumed_at is null;
  update mandate_private.near_wallet_recovery_credentials
   set code_hash=decode(p_new_code_hash_hex,'hex'),consumed_at=null,rotated_at=now()
   where owner_id=p_owner_id and consumed_at is null;
