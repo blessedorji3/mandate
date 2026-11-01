@@ -309,7 +309,7 @@ Deno.serve(async (req: Request) => {
       let publicKey: string;
       let requestId: string;
       if (action === "start") {
-        if (typeof body.accountId !== "string" || !/^[a-z0-9._-]{2,64}\\.testnet$/.test(body.accountId)) {
+        if (typeof body.accountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(body.accountId)) {
           return reply({ error: "Connect the replacement NEAR Testnet wallet first." }, 400);
         }
         if (typeof body.recoveryCode !== "string" ||
