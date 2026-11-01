@@ -22,17 +22,9 @@ async function recoveryRequest(body: Record<string, unknown>) {
   return data as Record<string, any>;
 }
 
-function toHex(bytes: Uint8Array) {
-  return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-}
 function fromHex(value: string) {
   if (!/^(?:[0-9a-f]{2})+$/.test(value)) throw new Error("The recovery challenge was malformed.");
   return Uint8Array.from(value.match(/.{2}/g)!, part => Number.parseInt(part, 16));
-}
-async function hashCode(value: string) {
-  const bytes = new TextEncoder().encode(value.trim().toUpperCase());
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return toHex(new Uint8Array(digest));
 }
 
 export function RecoveryLifecyclePanel() {
