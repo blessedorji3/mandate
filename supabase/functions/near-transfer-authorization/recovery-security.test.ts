@@ -11,7 +11,7 @@ const message = "MANDATE delayed wallet recovery test vector";
 const nonce = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
 
 Deno.test("accepts a valid NEP-413 Ed25519 signature", async () => {
-  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
+  const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const rawPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
   const publicKey = "ed25519:" + recoveryTestUtils.base58Encode(rawPublicKey);
   // The NEP-413 payload is SHA-256 of the Borsh-encoded message envelope.
