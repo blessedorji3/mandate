@@ -21,6 +21,12 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           version: latest
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install application dependencies for Deno npm resolution
+        run: npm install
       - name: Set up Deno
         uses: denoland/setup-deno@v2
         with:
