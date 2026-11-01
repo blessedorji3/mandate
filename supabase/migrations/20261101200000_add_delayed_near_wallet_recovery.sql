@@ -158,9 +158,10 @@ create or replace function public.start_near_wallet_recovery_v1(
 language plpgsql security definer
 set search_path = pg_catalog, public, mandate_private
 as $$
-declare c mandate_private.near_wallet_recovery_action_challenges%rowtype;
-declare v_code_hash bytea;
-declare v_attempts integer;
+declare
+  c mandate_private.near_wallet_recovery_action_challenges%rowtype;
+  v_code_hash bytea;
+  v_attempts integer;
 begin
   if p_owner_id is null or p_code_hash_hex !~ '^[0-9a-f]{64}$' then return false; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
@@ -196,8 +197,9 @@ returns boolean
 language plpgsql security definer
 set search_path = pg_catalog, public, mandate_private
 as $$
-declare v_code_hash bytea;
-declare v_attempts integer;
+declare
+  v_code_hash bytea;
+  v_attempts integer;
 begin
   if p_owner_id is null or p_code_hash_hex !~ '^[0-9a-f]{64}$' then return false; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
@@ -220,8 +222,9 @@ returns boolean
 language plpgsql security definer
 set search_path = pg_catalog, public, mandate_private
 as $$
-declare c mandate_private.near_wallet_recovery_action_challenges%rowtype;
-declare r mandate_private.near_wallet_recovery_requests%rowtype;
+declare
+  c mandate_private.near_wallet_recovery_action_challenges%rowtype;
+  r mandate_private.near_wallet_recovery_requests%rowtype;
 begin
   if p_owner_id is null then return false; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
