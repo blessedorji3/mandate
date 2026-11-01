@@ -327,10 +327,19 @@ Deno.serve(async (req: Request) => {
         publicKey = fullAccess.public_key;
         requestId = crypto.randomUUID();
       } else {
-        const pending = state?.request;
-        if (!pending || pending.status !== "pending") return reply({ error: "There is no pending wallet recovery to finalize." }, 409);
-        if (Number(pending.seconds_remaining) > 0) {
-          return reply({ error: "The 24-hour security waiting period has not finished.", secondsRemaining: Number(pending.seconds_remaining) }, 409);
+        // The lifecycle RPC returns a flat row (request_id, request_status, etc.),
+        // not the nested API response returned by the recovery_lifecycle action.
+        const pending = state?.request_id && state?.request_status === "pending"
+          ? {
+              id: state.request_id as string,
+              status: state.request_status as string,
+              new_account_id: state.new_account_id as string,
+              seconds_remaining: Number(state.seconds_remaining ?? 0),
+            }
+          : null;
+        if (!pending) return reply({ error: "There is no pending wallet recovery to finalize." }, 409);
+        if (pending.seconds_remaining > 0) {
+          return reply({ error: "The 24-hour security waiting period has not finished.", secondsRemaining: pending.seconds_remaining }, 409);
         }
         accountId = pending.new_account_id;
         const accessKeys = await rpcViewAccessKeys(accountId);
