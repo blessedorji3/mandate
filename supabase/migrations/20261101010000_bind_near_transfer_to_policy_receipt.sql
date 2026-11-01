@@ -43,7 +43,7 @@ begin
      and r.consumed_at is not null
      and r.consumed_at > now() - interval '10 minutes'
      and r.expires_at > r.consumed_at
-     and r.transaction_hash is null
+     and (r.transaction_hash is null or r.transaction_hash = p_transaction_hash)
      and exists (
        select 1
          from public.security_policies p
