@@ -289,7 +289,8 @@ Deno.serve(async (req: Request) => {
             inspected.proposal.actionType !== "transfer" ||
             inspected.proposal.asset !== "NEAR" ||
             inspected.proposal.amountAtomic !== TEST_TRANSFER.amountAtomic ||
-            inspected.proposal.target !== TEST_TRANSFER.receiverId) {
+            inspected.proposal.target !== TEST_TRANSFER.receiverId ||
+            inspected.proposal.network !== TEST_TRANSFER.network) {
           return reply({ error: "This proposal is not eligible for the fixed MANDATE Testnet transfer flow. Inspect it again or use the exact supported test transfer." }, 409);
         }
         if (inspected.outcome !== evaluated.outcome) {
@@ -402,7 +403,7 @@ Deno.serve(async (req: Request) => {
       if (typeof receipt !== "string" || !/^[0-9a-f]{64}$/.test(receipt) ||
           typeof signerAccountId !== "string") return reply({ error: "Invalid authorization receipt." }, 400);
       const policy = await getPolicy(admin, user.id);
-      if (!policy || evaluateTestTransferPolicy(policy).outcome !== "ALLOW") return reply({ error: "The active policy no longer permits this transfer." }, 403);
+      if (!policy || evaluateTestTransferPolicy(policy).outcome === "BLOCK") return reply({ error: "The active policy no longer permits this transfer." }, 403);
       const tokenHash = hex(await sha256(encoder.encode(receipt)));
       const digest = await actionDigest(signerAccountId);
       const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v2", {
