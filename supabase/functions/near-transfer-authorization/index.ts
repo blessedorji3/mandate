@@ -271,26 +271,49 @@ Deno.serve(async (req: Request) => {
       const policy = await getPolicy(admin, user.id);
       if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
       const evaluated = evaluateTestTransferPolicy(policy);
-      const decision = {
-        ...evaluated,
-        policyId: policy.id, policyVersion: policy.version,
-        proposalId: proposalId(),
-      };
-      const proposal = {
-        id: decision.proposalId, agentId: "mandate-wallet-panel",
-        actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
-        amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
-        network: TEST_TRANSFER.network,
-      };
-      const { error: decisionError } = await admin.from("authorization_decisions").insert({
-        owner_id: user.id, policy_id: policy.id, policy_version: policy.version,
-        proposal_id: decision.proposalId, agent_id: "mandate-wallet-panel",
-        action_type: TEST_TRANSFER.actionType, outcome: decision.outcome,
-        reason: decision.reason, proposal,
-      });
-      if (decisionError) throw new Error("Could not record the policy decision");
-      if (decision.outcome !== "ALLOW") {
-        return reply({ error: decision.message, decision }, 403);
+      let decision: Record<string, unknown>;
+      if (typeof body.proposalId === "string") {
+        if (!/^[a-zA-Z0-9_-]{1,128}$/.test(body.proposalId)) {
+          return reply({ error: "Invalid inspected proposal reference." }, 400);
+        }
+        const { data: inspected, error: inspectedError } = await admin
+          .from("authorization_decisions")
+          .select("proposal_id, policy_id, policy_version, outcome, proposal")
+          .eq("owner_id", user.id).eq("proposal_id", body.proposalId)
+          .maybeSingle();
+        if (inspectedError || !inspected ||
+            inspected.policy_id !== policy.id ||
+            inspected.policy_version !== policy.version ||
+            !["ALLOW", "REQUIRE_APPROVAL"].includes(inspected.outcome) ||
+            !isRecord(inspected.proposal) ||
+            inspected.proposal.actionType !== "transfer" ||
+            inspected.proposal.asset !== "NEAR" ||
+            inspected.proposal.amountAtomic !== TEST_TRANSFER.amountAtomic ||
+            inspected.proposal.target !== TEST_TRANSFER.receiverId) {
+          return reply({ error: "This proposal is not eligible for the fixed MANDATE Testnet transfer flow. Inspect it again or use the exact supported test transfer." }, 409);
+        }
+        if (inspected.outcome !== evaluated.outcome) {
+          return reply({ error: "The current policy decision differs from the inspected proposal. Inspect again." }, 409);
+        }
+        decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: inspected.proposal_id };
+      } else {
+        decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: proposalId() };
+        const proposal = {
+          id: decision.proposalId, agentId: "mandate-wallet-panel",
+          actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
+          amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
+          network: TEST_TRANSFER.network,
+        };
+        const { error: decisionError } = await admin.from("authorization_decisions").insert({
+          owner_id: user.id, policy_id: policy.id, policy_version: policy.version,
+          proposal_id: decision.proposalId, agent_id: "mandate-wallet-panel",
+          action_type: TEST_TRANSFER.actionType, outcome: decision.outcome,
+          reason: decision.reason, proposal,
+        });
+        if (decisionError) throw new Error("Could not record the policy decision");
+      }
+      if (decision.outcome === "BLOCK") {
+        return reply({ error: String(decision.message), decision }, 403);
       }
       const digest = await actionDigest(signer);
       const nonce = crypto.getRandomValues(new Uint8Array(32));
@@ -352,7 +375,7 @@ Deno.serve(async (req: Request) => {
 
       const policy = await getPolicy(admin, user.id);
       if (!policy || policy.id !== challenge.policy_id || policy.version !== challenge.policy_version ||
-          evaluateTestTransferPolicy(policy).outcome !== "ALLOW") {
+          evaluateTestTransferPolicy(policy).outcome === "BLOCK") {
         return reply({ error: "The active policy changed or no longer permits this transfer. Start again." }, 409);
       }
       const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
