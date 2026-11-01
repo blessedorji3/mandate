@@ -20,7 +20,7 @@ Deno.test("accepts a valid NEP-413 Ed25519 signature", async () => {
 });
 
 Deno.test("rejects a signature if message, nonce, or recipient is substituted", async () => {
-  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+  const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const publicKey = "ed25519:" + recoveryTestUtils.base58Encode(
     new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)),
   );
@@ -33,7 +33,7 @@ Deno.test("rejects a signature if message, nonce, or recipient is substituted", 
 });
 
 Deno.test("rejects signature-byte tampering and malformed encodings without throwing", async () => {
-  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+  const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const publicKey = "ed25519:" + recoveryTestUtils.base58Encode(
     new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)),
   );
