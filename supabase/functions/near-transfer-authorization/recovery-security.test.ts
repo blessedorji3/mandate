@@ -11,10 +11,9 @@ const message = "MANDATE delayed wallet recovery test vector";
 const nonce = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
 
 Deno.test("accepts a valid NEP-413 Ed25519 signature", async () => {
-  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
   const rawPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
   const publicKey = "ed25519:" + recoveryTestUtils.base58Encode(rawPublicKey);
-  const encoder = new TextEncoder();
   // The NEP-413 payload is SHA-256 of the Borsh-encoded message envelope.
   const signature = await signNep413(pair.privateKey, message, nonce, recipient);
   assert(await verifyNep413(message, nonce, recipient, publicKey, signature));
@@ -91,7 +90,7 @@ async function signNep413(
   const prefix = new Uint8Array(4);
   new DataView(prefix.buffer).setUint32(0, 0x80000000 + 413, true);
   const payload = concat(prefix, borsh(message), nonceBytes, borsh(recipientValue), new Uint8Array([0]));
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", payload));
-  const signature = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, privateKey, digest));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", payload.slice().buffer as ArrayBuffer));
+  const signature = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, privateKey, digest.slice().buffer as ArrayBuffer));
   return btoa(String.fromCharCode(...signature));
 }
