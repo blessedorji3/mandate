@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-fixture="supabase/tests/fixtures/mandate-test-baseline.sql"
+fixture=".github/fixtures/mandate-test-baseline.sql"
 temporary_migration="supabase/migrations/20261001000000_test_only_baseline.sql"
 
 if [[ ! -f "$fixture" ]]; then
