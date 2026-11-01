@@ -332,7 +332,7 @@ Deno.serve(async (req: Request) => {
         `Historical NEAR account: ${historicalAccountId ?? "NONE — FIRST WALLET ENROLLMENT"}`,
         `Challenge: ${challengeId}`,
         `Nonce: ${nonceHex}`,
-      ].join("\\n");
+      ].join("\n");
       const { error } = await admin.rpc("create_near_wallet_recovery_setup_challenge_v1", {
         p_owner_id: user.id,
         p_id: challengeId,
