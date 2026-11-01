@@ -18,6 +18,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Report dependency vulnerabilities
+        run: |
+          npm audit --json > /tmp/mandate-npm-audit.json || true
+          node -e "const a=require('/tmp/mandate-npm-audit.json'); console.log(JSON.stringify({metadata:a.metadata?.vulnerabilities, findings:Object.entries(a.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,isDirect:v.isDirect,range:v.range,fixAvailable:v.fixAvailable,via:v.via.map(x=>typeof x==='string'?x:{name:x.name,title:x.title,url:x.url,range:x.range})}))},null,2))"
       - name: Run authorization tests
         run: npm test
       - name: Type-check
