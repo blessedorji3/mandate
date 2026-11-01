@@ -60,16 +60,6 @@ begin
     raise exception 'This MANDATE account has previous NEAR wallet history. Complete the official independent-factor wallet recovery process before registering a replacement.';
   end if;
 
-  -- Do not issue ordinary registration challenges for accounts with prior wallet history.
-  -- Replacements require the separate independent-factor recovery protocol.
-  if exists (
-    select 1
-    from mandate_private.near_owner_wallets
-    where owner_id = p_owner_id
-  ) then
-    raise exception 'This MANDATE account has previous NEAR wallet history. Complete the official independent-factor wallet recovery process before registering a replacement.';
-  end if;
-
   if exists (
     select 1
     from mandate_private.near_owner_wallets
