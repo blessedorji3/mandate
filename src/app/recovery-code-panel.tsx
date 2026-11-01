@@ -48,13 +48,6 @@ export function RecoveryCodePanel() {
       try {
         const status = await recoveryRequest({ action: "recovery_setup_status" });
         if (!active) return;
-        const { NearConnector } = await import("@hot-labs/near-connect");
-        connector = new NearConnector({ network: "testnet", features: { testnet: true }, autoConnect: false });
-        connectorRef.current = connector;
-        connector.on("wallet:signIn", onSignIn);
-        connector.on("wallet:signOut", onSignOut);
-        await connector.whenManifestLoaded;
-        if (active) setReady(true);
         setEstablished(status.established === true);
         setHasHistory(status.hasWalletHistory === true);
         const wallets = Array.isArray(status.historicalWallets) ? status.historicalWallets : [];
@@ -65,6 +58,15 @@ export function RecoveryCodePanel() {
           : status.hasWalletHistory
             ? "This existing account must prove control of a previously registered wallet before creating its recovery code."
             : "Create your independent recovery code before registering your first NEAR wallet.");
+        if (status.hasWalletHistory === true) {
+          const { NearConnector } = await import("@hot-labs/near-connect");
+          connector = new NearConnector({ network: "testnet", features: { testnet: true }, autoConnect: false });
+          connectorRef.current = connector;
+          connector.on("wallet:signIn", onSignIn);
+          connector.on("wallet:signOut", onSignOut);
+          await connector.whenManifestLoaded;
+          if (active) setReady(true);
+        }
       } catch (cause) {
         if (active) {
           setError(cause instanceof Error ? cause.message : "Could not load recovery setup.");
