@@ -353,7 +353,7 @@ Deno.serve(async (req: Request) => {
         `Recovery request: ${requestId}`,
         `Challenge: ${challengeId}`,
         `Nonce: ${nonceHex}`,
-      ].join("\\n");
+      ].join("\n");
       const { error } = await admin.rpc("create_near_wallet_recovery_action_challenge_v1", {
         p_owner_id: user.id, p_id: challengeId, p_request_id: requestId,
         p_action: action, p_account_id: accountId, p_public_key: publicKey,
