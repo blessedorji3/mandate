@@ -26,6 +26,6 @@ jobs:
         with:
           deno-version: v2.x
       - name: Run recovery signature and challenge security tests
-        run: deno test --no-check supabase/functions/near-transfer-authorization/recovery-security.test.ts
+        run: deno test supabase/functions/near-transfer-authorization/recovery-security.test.ts
       - name: Replay migrations and run pgTAP recovery tests
         run: bash .github/scripts/run-recovery-db-tests.sh
