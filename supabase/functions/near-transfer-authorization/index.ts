@@ -264,10 +264,85 @@ Deno.serve(async (req: Request) => {
   if (!isRecord(body) || typeof body.action !== "string") return reply({ error: "An action is required." }, 400);
 
   try {
+    if (body.action === "wallet_status") {
+      const { data, error } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: body.accountId,
+      });
+      if (error) throw new Error("Could not check registered wallet status");
+      const wallet = Array.isArray(data) ? data[0] : null;
+      return reply({ registered: Boolean(wallet), wallet: wallet ? {
+        accountId: wallet.account_id, publicKey: wallet.public_key, verifiedAt: wallet.verified_at,
+      } : null });
+    }
+
+    if (body.action === "register_wallet_challenge") {
+      const accountId = body.accountId;
+      if (typeof accountId !== "string" || !/^[a-z0-9._-]{2,64}\\.testnet$/.test(accountId)) {
+        return reply({ error: "Connect a valid NEAR Testnet account first." }, 400);
+      }
+      const challengeId = crypto.randomUUID();
+      const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const message = [
+        "MANDATE NEAR TESTNET WALLET REGISTRATION",
+        "This signature registers this wallet to your signed-in MANDATE account. It does not move funds.",
+        `MANDATE owner: ${user.id}`,
+        `NEAR account: ${accountId}`,
+        `Challenge: ${challengeId}`,
+        `Nonce: ${nonceHex}`,
+      ].join("\\n");
+      const { error } = await admin.rpc("create_near_wallet_registration_challenge_v1", {
+        p_owner_id: user.id, p_id: challengeId, p_account_id: accountId,
+        p_nonce_hex: nonceHex, p_message: message,
+      });
+      if (error) throw new Error(error.message || "Could not create wallet registration challenge");
+      return reply({ challengeId, message, nonceHex, recipient: APP_RECIPIENT, accountId, expiresInSeconds: 300 });
+    }
+
+    if (body.action === "register_wallet_verify") {
+      const { challengeId, signedMessage } = body;
+      if (typeof challengeId !== "string" || !isRecord(signedMessage) ||
+          typeof signedMessage.accountId !== "string" || typeof signedMessage.publicKey !== "string" ||
+          typeof signedMessage.signature !== "string") {
+        return reply({ error: "A valid NEP-413 signed registration message is required." }, 400);
+      }
+      const { data: rows, error } = await admin.rpc("get_near_wallet_registration_challenge_v1", {
+        p_owner_id: user.id, p_id: challengeId,
+      });
+      const challenge = Array.isArray(rows) ? rows[0] : null;
+      if (error || !challenge) return reply({ error: "Wallet registration challenge expired, missing, or already used." }, 409);
+      if (signedMessage.accountId !== challenge.account_id) {
+        return reply({ error: "The signed account does not match the wallet being registered." }, 403);
+      }
+      const accessKeys = await rpcViewAccessKeys(signedMessage.accountId);
+      const matchingKey = accessKeys.find((entry) => entry.public_key === signedMessage.publicKey);
+      if (!matchingKey || matchingKey.access_key?.permission !== "FullAccess") {
+        return reply({ error: "The signing key is not a verified full-access key for this NEAR account." }, 403);
+      }
+      const valid = await verifyNep413(
+        challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+        signedMessage.publicKey, signedMessage.signature,
+      );
+      if (!valid) return reply({ error: "NEP-413 wallet registration signature verification failed." }, 403);
+      const { data: completed, error: completeError } = await admin.rpc("complete_near_wallet_registration_v1", {
+        p_owner_id: user.id, p_id: challenge.id, p_public_key: signedMessage.publicKey,
+      });
+      if (completeError || completed !== true) {
+        return reply({ error: completeError?.message || "Wallet registration could not be completed." }, 409);
+      }
+      return reply({ registered: true, accountId: challenge.account_id, publicKey: signedMessage.publicKey });
+    }
+
     if (body.action === "challenge") {
       const signer = body.signerAccountId;
       if (typeof signer !== "string" || !/^[a-z0-9._-]+\.testnet$/.test(signer)) {
         return reply({ error: "Connect a valid NEAR Testnet account." }, 400);
+      }
+      const { data: registeredRows, error: registeredError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: signer,
+      });
+      const registeredWallet = Array.isArray(registeredRows) ? registeredRows[0] : null;
+      if (registeredError || !registeredWallet) {
+        return reply({ error: "Register and verify this NEAR wallet to your MANDATE account before authorizing a transfer." }, 403);
       }
       const policy = await getPolicy(admin, user.id);
       if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
@@ -367,6 +442,13 @@ Deno.serve(async (req: Request) => {
       const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
       if (challengeError || !challenge) return reply({ error: "Challenge expired, missing, or already used." }, 409);
       if (signed.accountId !== challenge.signer_account_id) return reply({ error: "The signature account does not match the proposed sender." }, 403);
+      const { data: walletRows, error: walletError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: signed.accountId,
+      });
+      const registeredWallet = Array.isArray(walletRows) ? walletRows[0] : null;
+      if (walletError || !registeredWallet || registeredWallet.public_key !== signed.publicKey) {
+        return reply({ error: "This signing key is not the verified key registered to your MANDATE account." }, 403);
+      }
 
       const accessKeys = await rpcViewAccessKeys(signed.accountId);
       const matchingKey = accessKeys.find((entry) => entry.public_key === signed.publicKey);
