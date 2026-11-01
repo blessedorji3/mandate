@@ -46,6 +46,8 @@ export function RecoveryCodePanel() {
 
     async function initialize() {
       try {
+        const status = await recoveryRequest({ action: "recovery_setup_status" });
+        if (!active) return;
         const { NearConnector } = await import("@hot-labs/near-connect");
         connector = new NearConnector({ network: "testnet", features: { testnet: true }, autoConnect: false });
         connectorRef.current = connector;
@@ -53,8 +55,6 @@ export function RecoveryCodePanel() {
         connector.on("wallet:signOut", onSignOut);
         await connector.whenManifestLoaded;
         if (active) setReady(true);
-        const status = await recoveryRequest({ action: "recovery_setup_status" });
-        if (!active) return;
         setEstablished(status.established === true);
         setHasHistory(status.hasWalletHistory === true);
         const wallets = Array.isArray(status.historicalWallets) ? status.historicalWallets : [];
