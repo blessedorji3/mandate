@@ -2,6 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
+import { createClient } from "@/lib/supabase/client";
+
+const TRANSFER = {
+  receiverId: "confirmwithmandate.testnet",
+  amountAtomic: "1000000000000000000000",
+  amountLabel: "0.001 NEAR",
+} as const;
+
+function fromHex(value: string): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})+$/.test(value)) throw new Error("The authorization challenge was malformed.");
+  return Uint8Array.from(value.match(/.{2}/g)!, (part) => Number.parseInt(part, 16));
+}
+
+async function authorizationRequest(body: Record<string, unknown>) {
+  const supabase = createClient();
+  const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body });
+  if (error) throw new Error(error.message || "MANDATE authorization service is unavailable.");
+  if (!data || typeof data !== "object") throw new Error("MANDATE returned an invalid authorization response.");
+  if ("error" in data && typeof data.error === "string") throw new Error(data.error);
+  return data as Record<string, any>;
+}
 
 export function NearWalletPanel() {
   const connectorRef = useRef<NearConnector | null>(null);
@@ -10,6 +31,7 @@ export function NearWalletPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("Preparing secure wallet connection…");
+  const [txHash, setTxHash] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -20,11 +42,13 @@ export function NearWalletPanel() {
       setAccountId(event.accounts[0]?.accountId ?? null);
       setNotice("Wallet connected to NEAR Testnet.");
       setError("");
+      setTxHash("");
     };
     const handleSignOut = () => {
       if (!active) return;
       setAccountId(null);
       setNotice("Wallet disconnected.");
+      setTxHash("");
     };
 
     async function initialize() {
@@ -109,13 +133,95 @@ export function NearWalletPanel() {
     }
   }
 
+  async function executeTestTransfer() {
+    const connector = connectorRef.current;
+    if (!connector || !accountId || busy) return;
+    setBusy(true);
+    setError("");
+    setTxHash("");
+    setNotice("Checking your active MANDATE policy…");
+    try {
+      const challenge = await authorizationRequest({
+        action: "challenge",
+        signerAccountId: accountId,
+      });
+      if (challenge.decision?.outcome !== "ALLOW" ||
+          challenge.intent?.receiverId !== TRANSFER.receiverId ||
+          challenge.intent?.amountAtomic !== TRANSFER.amountAtomic) {
+        throw new Error("MANDATE did not approve the exact test transfer. Nothing was sent.");
+      }
+
+      setNotice("Policy ALLOW. Requesting a wallet signature to prove account ownership…");
+      const wallet = await connector.wallet();
+      if (typeof wallet.signMessage !== "function" ||
+          typeof wallet.signAndSendTransaction !== "function") {
+        throw new Error("This wallet does not support the signing features required by MANDATE.");
+      }
+      const signedMessage = await wallet.signMessage({
+        message: challenge.message,
+        recipient: challenge.recipient,
+        nonce: fromHex(challenge.nonceHex),
+        network: "testnet",
+        signerId: accountId,
+      });
+
+      setNotice("Verifying your wallet signature and re-checking the policy…");
+      const verified = await authorizationRequest({
+        action: "verify",
+        challengeId: challenge.challengeId,
+        signedMessage,
+      });
+      if (verified.authorized !== true || typeof verified.receipt !== "string") {
+        throw new Error("MANDATE did not issue a one-time authorization. Nothing was sent.");
+      }
+
+      setNotice("Consuming the one-time authorization. Next, your wallet will ask you to approve the transfer…");
+      const consumed = await authorizationRequest({
+        action: "consume",
+        receipt: verified.receipt,
+        signerAccountId: accountId,
+      });
+      if (consumed.consumed !== true) {
+        throw new Error("The one-time authorization could not be consumed. Nothing was sent.");
+      }
+
+      const outcome = await wallet.signAndSendTransaction({
+        network: "testnet",
+        signerId: accountId,
+        receiverId: TRANSFER.receiverId,
+        actions: [{ type: "Transfer", params: { deposit: TRANSFER.amountAtomic } }],
+      });
+      const hash = outcome?.transaction?.hash ?? outcome?.transaction_outcome?.id;
+      if (typeof hash !== "string" || !hash) {
+        throw new Error("The wallet returned without a transaction hash. Check your wallet activity before retrying.");
+      }
+      setTxHash(hash);
+      setNotice("Transaction submitted. Independently verifying the exact transfer on NEAR Testnet…");
+      const chainResult = await authorizationRequest({
+        action: "verify_transaction",
+        transactionHash: hash,
+        signerAccountId: accountId,
+      });
+      if (chainResult.verified !== true || chainResult.receiverId !== TRANSFER.receiverId ||
+          chainResult.amountAtomic !== TRANSFER.amountAtomic) {
+        throw new Error("MANDATE could not verify the exact transfer on NEAR Testnet. Check the explorer before retrying.");
+      }
+      setNotice("Verified on NEAR Testnet: the exact 0.001 NEAR transfer reached the confirmed recipient.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The transfer was cancelled or failed. Check wallet activity before retrying.");
+      setNotice("No successful transaction was confirmed by MANDATE.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel near-wallet-panel">
       <div className="panel-heading">
         <div><span className="step">01</span><h3>NEAR Testnet wallet</h3></div>
         <span className="muted-tag">TESTNET ONLY</span>
       </div>
-      <div className="near-wallet-network"><span className="live-dot" /> NEAR TESTNET <span>·</span> Chain connection only</div>
+      <div className="near-wallet-network"><span className="live-dot" /> NEAR TESTNET <span>·</span> Wallet-controlled signing</div>
       {accountId ? (
         <div className="near-wallet-connected">
           <span className="near-wallet-check">✓</span>
@@ -132,11 +238,29 @@ export function NearWalletPanel() {
           </button>
         </div>
       )}
-      <p className="near-wallet-notice" role="status">{notice}</p>
-      {error && <p className="near-wallet-error" role="alert">{error}</p>}
+      {accountId && (
+        <div className="near-transfer-box">
+          <div>
+            <strong>MANDATE-protected test transfer</strong>
+            <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
+          </div>
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy}>
+            {busy ? "Working…" : "Authorize & send test transfer →"}
+          </button>
+          <p className="near-wallet-notice" role="status">{notice}</p>
+          {txHash && (
+            <p className="near-wallet-notice">
+              Transaction: <a href={`https://testnet.nearblocks.io/txns/${encodeURIComponent(txHash)}`} target="_blank" rel="noreferrer">{txHash}</a>
+            </p>
+          )}
+          {error && <p className="near-wallet-error" role="alert">{error}</p>}
+        </div>
+      )}
+      {!accountId && <p className="near-wallet-notice" role="status">{notice}</p>}
+      {error && !accountId && <p className="near-wallet-error" role="alert">{error}</p>}
       <div className="near-wallet-boundary">
         <strong>Security boundary</strong>
-        <span>This step only connects the wallet and reads the public account ID. It does not sign, broadcast, or move funds. Never enter a recovery phrase or private key into MANDATE.</span>
+        <span>MANDATE checks the policy, verifies a NEP-413 full-access wallet signature, and consumes a short-lived one-time authorization before requesting the transaction. Your wallet still requires your explicit approval. Never enter a recovery phrase or private key into MANDATE.</span>
       </div>
     </section>
   );

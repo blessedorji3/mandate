@@ -2,3 +2,6 @@ project_id = "abyyyehfivahedvjrcwj"
 
 [functions.agent-inspect]
 verify_jwt = false
+
+[functions.near-transfer-authorization]
+verify_jwt = true

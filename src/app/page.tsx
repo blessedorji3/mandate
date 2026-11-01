@@ -9,11 +9,11 @@ type Outcome = "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
 type Decision = { outcome: Outcome; reason: string; message: string; policyId: string; policyVersion: number; proposalId: string; createdAt?: string };
 
 const scenarios = [
-  { id: "safe", label: "Permitted transfer", detail: "Known recipient · within limit", amount: "0.2", target: "alice.near", type: "transfer" },
-  { id: "limit", label: "Excessive transfer", detail: "Amount exceeds policy limit", amount: "2", target: "alice.near", type: "transfer" },
-  { id: "recipient", label: "Unknown recipient", detail: "Destination is not approved", amount: "0.1", target: "mallory.near", type: "transfer" },
-  { id: "approval", label: "Token approval", detail: "Sensitive allowance requires owner approval", amount: "0.1", target: "alice.near", type: "token_approval" },
-  { id: "override", label: "Unsupported swap", detail: "Swap inspection is disabled until transaction details can be verified", amount: "0.1", target: "alice.near", type: "swap" }
+  { id: "safe", label: "Permitted transfer", detail: "Known Testnet recipient · within limit", amount: "0.2", target: "confirmwithmandate.testnet", type: "transfer" },
+  { id: "limit", label: "Excessive transfer", detail: "Amount exceeds policy limit", amount: "2", target: "confirmwithmandate.testnet", type: "transfer" },
+  { id: "recipient", label: "Unknown recipient", detail: "Destination is not approved", amount: "0.1", target: "mallory.testnet", type: "transfer" },
+  { id: "approval", label: "Token approval", detail: "Sensitive Testnet allowance requires owner approval", amount: "0.1", target: "confirmwithmandate.testnet", type: "token_approval" },
+  { id: "override", label: "Unsupported swap", detail: "Swap inspection is disabled until transaction details can be verified", amount: "0.1", target: "confirmwithmandate.testnet", type: "swap" }
 ] as const;
 
 export default function Home() {
