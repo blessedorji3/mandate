@@ -154,7 +154,7 @@ select ok(
   'replacement cannot become available before the 24-hour delay'
 );
 select throws_ok(
-  $$$select public.create_near_transfer_challenge_v2(
+  $$select public.create_near_transfer_challenge_v2(
     '10000000-0000-4000-8000-000000000001',
     '80000000-0000-4000-8000-000000000001',
     repeat('f',64),'blocked while recovering','old-wallet-a.testnet',
@@ -187,7 +187,7 @@ select ok(
   'recovery start invalidates outstanding transfer receipts'
 );
 select throws_ok(
-  $$$select public.create_near_wallet_recovery_action_challenge_v1(
+  $$select public.create_near_wallet_recovery_action_challenge_v1(
     '10000000-0000-4000-8000-000000000001',
     '40000000-0000-4000-8000-000000000002',
     '70000000-0000-4000-8000-000000000001',
@@ -301,7 +301,7 @@ select public.create_near_wallet_recovery_action_challenge_v1(
 );
 -- An active wallet belonging to a different MANDATE owner cannot be selected as a replacement.
 select throws_ok(
- $$$select public.create_near_wallet_recovery_action_challenge_v1(
+ $$select public.create_near_wallet_recovery_action_challenge_v1(
   '10000000-0000-4000-8000-000000000001',
   '40000000-0000-4000-8000-000000000005',
   '70000000-0000-4000-8000-000000000005',
