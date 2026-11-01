@@ -104,7 +104,7 @@ begin
  if v_recent_count>=10 then raise exception 'Transfer challenge rate limit exceeded'; end if;
  if exists(select 1 from mandate_private.near_transfer_receipts r
   where r.owner_id=p_owner_id and r.proposal_id=p_proposal_id) then
-  raise exception 'This proposal already has a consumed authorization. Inspect an new proposal before attempting another transfer'; end if;
+  raise exception 'This proposal already has a consumed authorization. Inspect a new proposal before attempting another transfer'; end if;
  select * into v_policy from public.security_policies
   where id=p_policy_id and owner_id=p_owner_id and active=true limit 1;
  if not found or v_policy.version<>p_policy_version then raise exception 'Policy changed or inactive'; end if;
