@@ -382,13 +382,27 @@ Deno.serve(async (req: Request) => {
 
 
     if (body.action === "verify_transaction") {
-      const { transactionHash, signerAccountId } = body;
+      const { transactionHash, signerAccountId, receipt } = body;
       if (typeof transactionHash !== "string" || typeof signerAccountId !== "string" ||
-          !/^[a-z0-9._-]+\.testnet$/.test(signerAccountId)) {
-        return reply({ error: "A valid Testnet transaction hash and signer are required." }, 400);
+          !/^[a-z0-9._-]+\.testnet$/.test(signerAccountId) ||
+          typeof receipt !== "string" || !/^[0-9a-f]{64}$/.test(receipt)) {
+        return reply({ error: "A valid Testnet transaction hash, signer, and one-time authorization receipt are required." }, 400);
       }
       const result = await verifyOnChainTransfer(transactionHash, signerAccountId);
-      return reply(result);
+      const tokenHash = hex(await sha256(encoder.encode(receipt)));
+      const { data: bound, error: bindError } = await admin.rpc("bind_near_transfer_transaction_v1", {
+        p_owner_id: user.id,
+        p_token_hash: tokenHash,
+        p_signer_account_id: signerAccountId,
+        p_transaction_hash: transactionHash,
+      });
+      if (bindError || bound !== true) {
+        return reply({
+          error: "The on-chain transfer is valid, but it is not linked to a fresh, consumed MANDATE authorization for this account. It cannot be recorded as MANDATE-authorized.",
+          code: "AUTHORIZATION_RECEIPT_NOT_BOUND",
+        }, 409);
+      }
+      return reply({ ...result, authorizationBound: true });
     }
 
     return reply({ error: "Unknown action." }, 400);
