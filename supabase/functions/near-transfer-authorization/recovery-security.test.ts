@@ -97,13 +97,13 @@ async function signNep413(
 }
 
 Deno.test("rejects revoked, removed, and restricted NEAR signing keys", () => {
-  const keys = [
-    { public_key: "ed25519:revoked", access_key: { permission: "FullAccess" } },
+  const liveKeys = [
+    { public_key: "ed25519:other", access_key: { permission: "FullAccess" } },
     { public_key: "ed25519:function-call", access_key: { permission: { FunctionCall: {} } } },
   ];
-  assertEquals(findActiveFullAccessKey(keys, "ed25519:revoked")?.public_key, "ed25519:revoked");
-  // The caller receives the live NEAR access-key list; removed/revoked keys are absent from it.
-  assertEquals(findActiveFullAccessKey(keys, "ed25519:removed"), null);
-  assertEquals(findActiveFullAccessKey(keys, "ed25519:function-call"), null);
+  // A removed/revoked key is absent from the current NEAR access-key list.
+  assertEquals(findActiveFullAccessKey(liveKeys, "ed25519:revoked"), null);
+  assertEquals(findActiveFullAccessKey(liveKeys, "ed25519:removed"), null);
+  assertEquals(findActiveFullAccessKey(liveKeys, "ed25519:function-call"), null);
   assertEquals(findActiveFullAccessKey([], "ed25519:revoked"), null);
 });
