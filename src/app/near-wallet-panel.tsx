@@ -306,7 +306,6 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
           </button>
         </div>
       )}
-      {accountId && (
       {accountId && !walletRegistered && (
         <div className="near-transfer-box">
           <strong>Register this wallet to your MANDATE account</strong>
@@ -320,6 +319,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       {accountId && walletRegistered && (
         <p className="near-wallet-notice" role="status">✓ This wallet is registered and verified for your signed-in MANDATE account.</p>
       )}
+      {accountId && walletRegistered && (
         <div className="near-transfer-box">
           <div>
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
