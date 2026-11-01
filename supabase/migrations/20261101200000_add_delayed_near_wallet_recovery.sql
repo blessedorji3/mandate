@@ -421,7 +421,7 @@ begin
  update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
   where owner_id=p_owner_id and consumed_at is null;
  return true;
-end $;
+end $$;
 
 create or replace function public.cancel_near_wallet_recovery_v1(
  p_owner_id uuid,p_request_id uuid,p_code_hash_hex text
@@ -447,7 +447,7 @@ begin
  update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
   where owner_id=p_owner_id and consumed_at is null;
  return true;
-end $;
+end $$;
 
 create or replace function public.finalize_near_wallet_recovery_v1(
  p_owner_id uuid,p_id uuid,p_new_code_hash_hex text
