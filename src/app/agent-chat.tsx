@@ -48,7 +48,7 @@ export function AgentChat() {
       setMessages(current => [...current, {
         id: crypto.randomUUID(),
         role: "mandate",
-        text: "I couldn't safely turn that into a supported proposal. For this prototype, use this exact format: “Send 0.1 NEAR to alice.near”. Only NEAR transfers are supported here; I won't guess missing details or interpret other actions."
+        text: "I couldn't safely turn that into a supported proposal. Use a command like “Send 0.001 NEAR to confirmwithmandate.testnet”. Only NEAR transfers are supported here; I won't guess missing details or interpret other actions."
       }]);
       setBusy(false);
       return;
@@ -112,7 +112,7 @@ export function AgentChat() {
         <span className="eyebrow">MANDATE AGENT · PROTOTYPE</span>
         <h1>Talk to your agent.</h1>
         <p>Describe a proposed action in plain language. MANDATE checks the structured proposal against your saved security policy.</p>
-        <div className="agent-boundary"><span className="live-dot" /> Policy engine remains in control <b>·</b> No wallet connected <b>·</b> No funds move</div>
+        <div className="agent-boundary"><span className="live-dot" /> Policy engine remains in control <b>·</b> Wallet signing is explicit <b>·</b> Testnet only</div>
       </div>
 
       <div className="agent-chat-panel">
@@ -150,7 +150,7 @@ export function AgentChat() {
           <small>Supported in this first prototype: NEAR transfers only. Do not enter private keys or recovery phrases.</small>
         </form>
       </div>
-      <p className="agent-prototype-note">This is a constrained command-parser demo, not an LLM-powered agent yet. An ALLOW decision is not a transaction signature or execution authorization.</p>
+      <p className="agent-prototype-note">This is a constrained command-parser demo, not an LLM-powered agent yet. Inspection alone never authorizes execution; the supported wallet flow requires a fresh owner signature and a separate transaction approval.</p>
     </section>
   );
 }
