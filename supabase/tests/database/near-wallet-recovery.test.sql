@@ -23,6 +23,22 @@ select ok(
   has_function_privilege('service_role','public.start_near_wallet_recovery_v1(uuid,uuid,text)','EXECUTE'),
   'service role can execute recovery start RPC'
 );
+select ok(
+  not has_function_privilege('authenticated','public.start_near_wallet_recovery_v1(uuid,uuid,text)','EXECUTE'),
+  'authenticated users cannot execute recovery start RPC directly'
+);
+select ok(
+  not has_table_privilege('authenticated','mandate_private.near_wallet_recovery_requests','SELECT')
+  and not has_table_privilege('authenticated','mandate_private.near_wallet_recovery_action_challenges','SELECT')
+  and not has_table_privilege('authenticated','mandate_private.near_wallet_recovery_credentials','SELECT'),
+  'authenticated users cannot directly read private recovery records'
+);
+select ok(
+  has_table_privilege('service_role','mandate_private.near_wallet_recovery_requests','SELECT')
+  and has_table_privilege('service_role','mandate_private.near_wallet_recovery_action_challenges','SELECT')
+  and has_table_privilege('service_role','mandate_private.near_wallet_recovery_credentials','SELECT'),
+  'service role retains access required by the Edge Function'
+);
 
 -- Owner A: establish an independent recovery code and register the first wallet.
 select is(
