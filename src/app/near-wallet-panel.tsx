@@ -160,10 +160,9 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
 
   async function executeTestTransfer() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || busy) return;
+    if (!connector || !accountId || busy || txHash) return;
     setBusy(true);
     setError("");
-    if (txHash) return;
     setNotice("Checking your active MANDATE policy…");
     try {
       const challenge = await authorizationRequest({
@@ -280,6 +279,9 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
             {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
+          {txHash && receipt && error && (
+            <button className="outline-button" onClick={retryTransactionVerification} disabled={busy}>Retry verification only (no transfer)</button>
+          )}
           {txHash && (
             <p className="near-wallet-notice">
               Transaction: <a href={`https://testnet.nearblocks.io/txns/${encodeURIComponent(txHash)}`} target="_blank" rel="noreferrer">{txHash}</a>
