@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
+import { isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413 } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
@@ -176,17 +177,6 @@ async function rpcViewAccessKeys(accountId: string) {
   if (!Array.isArray(result.keys)) throw new Error("Could not verify NEAR account access keys");
   return result.keys as Array<{ public_key: string; access_key: { permission: unknown } }>;
 }
-async function verifyNep413(message: string, nonce: Uint8Array, recipient: string, publicKey: string, signature: string) {
-  const [keyType, encodedKey] = publicKey.split(":");
-  if (keyType !== "ed25519" || !encodedKey) return false;
-  const key = base58Decode(encodedKey);
-  const sig = base64Decode(signature);
-  if (key.length !== 32 || sig.length !== 64) return false;
-  const digest = await sha256(nep413Bytes(message, nonce, recipient));
-  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "Ed25519" }, false, ["verify"]);
-  return await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, sig, digest);
-}
-
 async function verifyOnChainTransfer(transactionHash: string, signerAccountId: string) {
   if (base58Decode(transactionHash).length !== 32) throw new Error("Invalid NEAR transaction hash");
   const result = await nearTestnetRpc({
@@ -321,6 +311,9 @@ Deno.serve(async (req: Request) => {
         }
         if (state?.request_status === "pending") return reply({ error: "A wallet recovery request is already pending." }, 409);
         accountId = body.accountId;
+        if (!isDifferentReplacementWallet(state?.active_wallet_account_id, accountId)) {
+          return reply({ error: "The replacement wallet must be different from your currently active wallet." }, 409);
+        }
         const accessKeys = await rpcViewAccessKeys(accountId);
         const fullAccess = accessKeys.find((entry) => entry.access_key?.permission === "FullAccess");
         if (!fullAccess) return reply({ error: "The replacement wallet has no verifiable FullAccess key." }, 403);
@@ -389,9 +382,9 @@ Deno.serve(async (req: Request) => {
         { p_owner_id: user.id, p_id: challengeId },
       );
       const challenge = Array.isArray(rows) ? rows[0] : null;
-      if (challengeError || !challenge || challenge.action !== action ||
-          challenge.account_id !== signedMessage.accountId ||
-          challenge.public_key !== signedMessage.publicKey) {
+      if (challengeError || !recoveryChallengeMatches(
+          challenge, action, signedMessage.accountId, signedMessage.publicKey,
+      )) {
         return reply({ error: "Recovery challenge expired, mismatched, or already used." }, 409);
       }
       const accessKeys = await rpcViewAccessKeys(challenge.account_id);
