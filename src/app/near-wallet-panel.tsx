@@ -24,7 +24,7 @@ async function authorizationRequest(body: Record<string, unknown>) {
   return data as Record<string, any>;
 }
 
-export function NearWalletPanel() {
+export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const connectorRef = useRef<NearConnector | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -144,14 +144,18 @@ export function NearWalletPanel() {
       const challenge = await authorizationRequest({
         action: "challenge",
         signerAccountId: accountId,
+        ...(proposalId ? { proposalId } : {}),
       });
-      if (challenge.decision?.outcome !== "ALLOW" ||
+      if (!["ALLOW", "REQUIRE_APPROVAL"].includes(challenge.decision?.outcome) ||
+          (proposalId && challenge.decision?.proposalId !== proposalId) ||
           challenge.intent?.receiverId !== TRANSFER.receiverId ||
           challenge.intent?.amountAtomic !== TRANSFER.amountAtomic) {
-        throw new Error("MANDATE did not approve the exact test transfer. Nothing was sent.");
+        throw new Error("MANDATE did not authorize a challenge for this exact proposal. Nothing was sent.");
       }
 
-      setNotice("Policy ALLOW. Requesting a wallet signature to prove account ownership…");
+      setNotice(challenge.decision.outcome === "REQUIRE_APPROVAL"
+        ? "Owner approval is required. Review the exact transfer and sign the approval message in your NEAR wallet…"
+        : "Policy ALLOW. Requesting a wallet signature to prove account ownership…");
       const wallet = await connector.wallet();
       if (typeof wallet.signMessage !== "function" ||
           typeof wallet.signAndSendTransaction !== "function") {
@@ -243,11 +247,11 @@ export function NearWalletPanel() {
       {accountId && (
         <div className="near-transfer-box">
           <div>
-            <strong>MANDATE-protected test transfer</strong>
+            <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
           <button className="inspect-button" onClick={executeTestTransfer} disabled={busy}>
-            {busy ? "Working…" : "Authorize & send test transfer →"}
+            {busy ? "Working…" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
           {txHash && (
