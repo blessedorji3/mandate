@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
-import { isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413 } from "./recovery-security.ts";
+import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413 } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
@@ -315,7 +315,7 @@ Deno.serve(async (req: Request) => {
           return reply({ error: "The replacement wallet must be different from your currently active wallet." }, 409);
         }
         const accessKeys = await rpcViewAccessKeys(accountId);
-        const fullAccess = accessKeys.find((entry) => entry.access_key?.permission === "FullAccess");
+        const fullAccess = findActiveFullAccessKey(accessKeys);
         if (!fullAccess) return reply({ error: "The replacement wallet has no verifiable FullAccess key." }, 403);
         publicKey = fullAccess.public_key;
         requestId = crypto.randomUUID();
@@ -388,9 +388,7 @@ Deno.serve(async (req: Request) => {
         return reply({ error: "Recovery challenge expired, mismatched, or already used." }, 409);
       }
       const accessKeys = await rpcViewAccessKeys(challenge.account_id);
-      const fullAccess = accessKeys.find((entry) =>
-        entry.public_key === challenge.public_key && entry.access_key?.permission === "FullAccess"
-      );
+      const fullAccess = findActiveFullAccessKey(accessKeys, challenge.public_key);
       if (!fullAccess) return reply({ error: "The signing key is no longer an active FullAccess key." }, 403);
       const valid = await verifyNep413(
         challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
@@ -559,7 +557,7 @@ Deno.serve(async (req: Request) => {
           return reply({ error: "The signing key is not the historical key recorded for this MANDATE account." }, 403);
         }
         const accessKeys = await rpcViewAccessKeys(signedMessage.accountId);
-        const matchingKey = accessKeys.find((entry) => entry.public_key === signedMessage.publicKey);
+        const matchingKey = findActiveFullAccessKey(accessKeys, signedMessage.publicKey);
         if (!matchingKey || matchingKey.access_key?.permission !== "FullAccess") {
           return reply({ error: "The historical signing key is no longer a full-access key for this NEAR account." }, 403);
         }
@@ -772,7 +770,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const accessKeys = await rpcViewAccessKeys(signed.accountId);
-      const matchingKey = accessKeys.find((entry) => entry.public_key === signed.publicKey);
+      const matchingKey = findActiveFullAccessKey(accessKeys, signed.publicKey);
       if (!matchingKey || matchingKey.access_key?.permission !== "FullAccess") {
         return reply({ error: "The signing key is not a verified full-access key for this NEAR account." }, 403);
       }
