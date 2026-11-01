@@ -40,6 +40,22 @@ create table if not exists mandate_private.near_wallet_recovery_action_challenge
 create index if not exists near_wallet_recovery_action_challenges_owner_idx
   on mandate_private.near_wallet_recovery_action_challenges(owner_id, created_at desc);
 
+
+create table if not exists mandate_private.near_wallet_recovery_events (
+  id bigint generated always as identity primary key,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  request_id uuid not null,
+  event_type text not null check (event_type in ('started','cancelled','completed')),
+  account_id text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists near_wallet_recovery_events_owner_created_idx
+  on mandate_private.near_wallet_recovery_events(owner_id,created_at desc);
+alter table mandate_private.near_wallet_recovery_events enable row level security;
+revoke all on mandate_private.near_wallet_recovery_events from public,anon,authenticated;
+grant all on mandate_private.near_wallet_recovery_events to service_role;
+grant usage,select on sequence mandate_private.near_wallet_recovery_events_id_seq to service_role;
+
 create table if not exists mandate_private.near_wallet_recovery_code_attempts (
   id bigint generated always as identity primary key,
   owner_id uuid not null references auth.users(id) on delete cascade,
@@ -186,6 +202,8 @@ begin
     (id,owner_id,new_account_id,new_public_key,status,started_at,available_at)
   values(c.request_id,p_owner_id,c.account_id,c.public_key,'pending',now(),now()+interval '24 hours');
   update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now() where id=c.id;
+  insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
+    values(p_owner_id,c.request_id,'started',c.account_id);
   -- Invalidate every outstanding transfer challenge and receipt immediately.
   update mandate_private.near_transfer_challenges set consumed_at=now()
     where owner_id=p_owner_id and consumed_at is null;
@@ -216,6 +234,11 @@ begin
   update mandate_private.near_wallet_recovery_requests
     set status='cancelled',cancelled_at=now()
     where id=p_request_id and owner_id=p_owner_id and status='pending';
+  if found then
+    insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
+    select owner_id,id,'cancelled',new_account_id from mandate_private.near_wallet_recovery_requests
+    where id=p_request_id and owner_id=p_owner_id;
+  end if;
   return found;
 end;
 $$;
@@ -251,6 +274,8 @@ begin
    set public_key=excluded.public_key,verified_at=now(),revoked_at=null;
  update mandate_private.near_wallet_recovery_requests
   set status='completed',completed_at=now() where id=r.id and status='pending';
+ insert into mandate_private.near_wallet_recovery_events(owner_id,request_id,event_type,account_id)
+  values(p_owner_id,r.id,'completed',r.new_account_id);
  update mandate_private.near_wallet_recovery_action_challenges set consumed_at=now()
   where id=c.id and consumed_at is null;
  -- Rotate the independent factor atomically; old code immediately becomes invalid.
