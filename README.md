@@ -111,3 +111,15 @@ The dashboard links to the chat workspace. The external Developer API remains in
 The authenticated `/wallet` page uses `@hot-labs/near-connect` configured for **NEAR Testnet only**. It lets the user select a compatible wallet, connects without requesting a transaction, reads the public account ID, and supports disconnecting. Wallet keys and recovery phrases remain inside the wallet; MANDATE does not request or store them.
 
 **Current boundary:** the wallet connection screen itself is connection-only. The separate Testnet transfer journey binds the authorization to the exact network, signer, receiver, transfer action, and amount; checks the active policy; requires explicit owner confirmation in the wallet; and verifies the resulting finalized transaction before recording success. The execution path is Testnet-only and is not a mainnet payment system.
+
+
+## First successful NEAR Testnet payment proof
+
+The project operator reported a successful end-to-end Testnet transfer with the following details:
+
+- **Network:** NEAR Testnet
+- **Amount:** 0.001 NEAR
+- **Recipient:** `confirmwithmandate.testnet`
+- **Transaction hash:** `3J2DLMZ2mWq3W8aBfCz5NzGdxkjDU5GD3ut5H6wzfkw1`
+
+This is the first recorded successful MANDATE transfer milestone. The transaction hash is retained as the reference for the demo; it is not a mainnet payment or evidence of production financial readiness.
