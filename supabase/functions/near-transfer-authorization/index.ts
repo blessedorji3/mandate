@@ -419,13 +419,17 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      const newRecoveryCode = `MND-${hex(crypto.getRandomValues(new Uint8Array(32))).toUpperCase()}`;
+      const newRecoveryCodeHash = hex(await sha256(encoder.encode(newRecoveryCode)));
       const { data: completed, error } = await admin.rpc("finalize_near_wallet_recovery_v1", {
         p_owner_id: user.id, p_id: challenge.id,
+        p_new_code_hash_hex: newRecoveryCodeHash,
       });
       if (error || completed !== true) return reply({ error: error?.message || "Recovery is not ready or the request is no longer valid." }, 409);
       return reply({
         completed: true, accountId: challenge.account_id,
-        message: "Wallet recovery completed. The old wallet has been revoked and the replacement wallet is now the single active MANDATE sender.",
+        recoveryCode: newRecoveryCode,
+        message: "Wallet recovery completed. The old wallet has been revoked, the replacement is now the single active MANDATE sender, and a new independent recovery code has been issued. Save it now; it will not be shown again.",
       });
     }
 
