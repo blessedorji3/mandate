@@ -207,7 +207,7 @@ begin
     where owner_id=p_owner_id and attempted_at>now()-interval '1 hour';
   if v_attempts>=5 then return false; end if;
   select code_hash into v_code_hash from mandate_private.near_wallet_recovery_credentials
-    where owner_id=p_owner_id and consumed_at is null;
+    where owner_id=p_owner_id and consumed_at is null for update;
   insert into mandate_private.near_wallet_recovery_code_attempts(owner_id) values(p_owner_id);
   if v_code_hash is null or v_code_hash<>decode(p_code_hash_hex,'hex') then return false; end if;
   update mandate_private.near_wallet_recovery_requests
