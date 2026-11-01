@@ -299,6 +299,39 @@ select public.create_near_wallet_recovery_action_challenge_v1(
  'start','new-wallet-b.testnet','ed25519:' || repeat('4',44),
  repeat('e',64),'owner B start proof'
 );
+-- An active wallet belonging to a different MANDATE owner cannot be selected as a replacement.
+select throws_ok(
+ $select public.create_near_wallet_recovery_action_challenge_v1(
+  '10000000-0000-4000-8000-000000000001',
+  '40000000-0000-4000-8000-000000000005',
+  '70000000-0000-4000-8000-000000000005',
+  'start','old-wallet-b.testnet','ed25519:' || repeat('3',44),
+  repeat('f',64),'attempt to substitute another owner wallet'
+ )$,
+ 'P0001',
+ 'The replacement NEAR wallet is already active under another MANDATE account',
+ 'replacement wallet already active for another owner is rejected'
+);
+
+-- Expired challenge rows are not returned to the Edge Function verifier.
+insert into mandate_private.near_wallet_recovery_action_challenges
+ (id,owner_id,request_id,action,account_id,public_key,nonce_hex,message,expires_at)
+ values(
+  '40000000-0000-4000-8000-000000000006',
+  '10000000-0000-4000-8000-000000000002',
+  '70000000-0000-4000-8000-000000000006',
+  'start','new-wallet-b.testnet','ed25519:' || repeat('4',44),
+  repeat('a',64),'expired local recovery challenge',now()-interval '1 second'
+ );
+select is(
+ (select count(*)::integer from public.get_near_wallet_recovery_action_challenge_v1(
+  '10000000-0000-4000-8000-000000000002',
+  '40000000-0000-4000-8000-000000000006'
+ )),
+ 0,
+ 'expired recovery challenge cannot be retrieved for signature verification'
+);
+
 select is(
  public.start_near_wallet_recovery_v1(
   '10000000-0000-4000-8000-000000000002',
