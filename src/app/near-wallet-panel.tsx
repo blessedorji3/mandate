@@ -34,6 +34,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const [txHash, setTxHash] = useState("");
   const [receipt, setReceipt] = useState("");
   const [authorizationConsumed, setAuthorizationConsumed] = useState(false);
+  const [walletRegistered, setWalletRegistered] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -42,12 +43,14 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
     const handleSignIn = (event: { accounts: Account[] }) => {
       if (!active) return;
       setAccountId(event.accounts[0]?.accountId ?? null);
-      setNotice("Wallet connected to NEAR Testnet.");
+      setWalletRegistered(false);
+      setNotice("Checking registered owner wallet status…");
       setError("");
     };
     const handleSignOut = () => {
       if (!active) return;
       setAccountId(null);
+      setWalletRegistered(false);
       setNotice("Wallet disconnected.");
       setTxHash("");
     };
@@ -70,8 +73,12 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
         try {
           const connected = await connector.getConnectedWallet();
           if (active) {
-            setAccountId(connected.accounts[0]?.accountId ?? null);
-            if (connected.accounts[0]) setNotice("Existing NEAR Testnet connection restored.");
+            const restored = connected.accounts[0]?.accountId ?? null;
+            setAccountId(restored);
+            if (restored) {
+              const status = await authorizationRequest({ action: "wallet_status", accountId: restored });
+              if (active) { setWalletRegistered(status.registered === true); setNotice(status.registered ? "Registered owner wallet verified." : "Register this wallet before making transfers."); }
+            }
             else setNotice("Ready to connect a NEAR Testnet wallet.");
           }
         } catch {
@@ -105,8 +112,13 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       await connector.connect();
       try {
         const connected = await connector.getConnectedWallet();
-        setAccountId(connected.accounts[0]?.accountId ?? null);
-        setNotice("Wallet connected to NEAR Testnet.");
+        const connectedAccount = connected.accounts[0]?.accountId ?? null;
+        setAccountId(connectedAccount);
+        if (connectedAccount) {
+          const status = await authorizationRequest({ action: "wallet_status", accountId: connectedAccount });
+          setWalletRegistered(status.registered === true);
+          setNotice(status.registered ? "Registered owner wallet verified." : "Register this wallet before making transfers.");
+        }
       } catch {
         // The wallet sign-in event will update the connected account.
       }
@@ -132,6 +144,28 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function registerOwnerWallet() {
+    const connector = connectorRef.current;
+    if (!connector || !accountId || !walletRegistered || busy || txHash) return;
+    setBusy(true); setError(""); setNotice("Creating a one-time wallet ownership challenge…");
+    try {
+      const challenge = await authorizationRequest({ action: "register_wallet_challenge", accountId });
+      const wallet = await connector.wallet();
+      if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
+      setNotice("Review and sign the wallet-registration message. This signature does not move funds…");
+      const signedMessage = await wallet.signMessage({
+        message: challenge.message, recipient: challenge.recipient,
+        nonce: fromHex(challenge.nonceHex), network: "testnet", signerId: accountId,
+      });
+      const result = await authorizationRequest({ action: "register_wallet_verify", challengeId: challenge.challengeId, signedMessage });
+      if (result.registered !== true || result.accountId !== accountId) throw new Error("MANDATE did not confirm this wallet registration.");
+      setWalletRegistered(true); setNotice("Wallet ownership verified and registered to your MANDATE account.");
+    } catch (cause) {
+      setWalletRegistered(false); setError(cause instanceof Error ? cause.message : "Wallet registration failed.");
+      setNotice("Wallet is not registered. Transfers remain disabled.");
+    } finally { setBusy(false); }
   }
 
   async function retryTransactionVerification() {
@@ -273,12 +307,25 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
         </div>
       )}
       {accountId && (
+      {accountId && !walletRegistered && (
+        <div className="near-transfer-box">
+          <strong>Register this wallet to your MANDATE account</strong>
+          <p>A one-time NEP-413 signature proves you control this NEAR Testnet account. It does not move funds.</p>
+          <button className="inspect-button" onClick={registerOwnerWallet} disabled={busy || Boolean(txHash)}>
+            {busy ? "Verifying wallet…" : "Register & verify owner wallet →"}
+          </button>
+          {error && <p className="near-wallet-error" role="alert">{error}</p>}
+        </div>
+      )}
+      {accountId && walletRegistered && (
+        <p className="near-wallet-notice" role="status">✓ This wallet is registered and verified for your signed-in MANDATE account.</p>
+      )}
         <div className="near-transfer-box">
           <div>
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || Boolean(txHash) || authorizationConsumed}>
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed}>
             {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
@@ -297,7 +344,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       {error && !accountId && <p className="near-wallet-error" role="alert">{error}</p>}
       <div className="near-wallet-boundary">
         <strong>Security boundary</strong>
-        <span>MANDATE checks the policy, verifies a NEP-413 full-access wallet signature, and consumes a short-lived one-time authorization before requesting the transaction. Your wallet still requires your explicit approval. Never enter a recovery phrase or private key into MANDATE.</span>
+        <span>MANDATE requires a registered owner wallet, verifies its NEP-413 full-access signature, re-checks policy and consumes a short-lived one-time authorization before requesting the transaction. Your wallet still requires your explicit approval. Never enter a recovery phrase or private key into MANDATE.</span>
       </div>
     </section>
   );
