@@ -277,7 +277,7 @@ Deno.serve(async (req: Request) => {
 
     if (body.action === "register_wallet_challenge") {
       const accountId = body.accountId;
-      if (typeof accountId !== "string" || !/^[a-z0-9._-]{2,64}\\.testnet$/.test(accountId)) {
+      if (typeof accountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(accountId)) {
         return reply({ error: "Connect a valid NEAR Testnet account first." }, 400);
       }
       const challengeId = crypto.randomUUID();
@@ -289,7 +289,7 @@ Deno.serve(async (req: Request) => {
         `NEAR account: ${accountId}`,
         `Challenge: ${challengeId}`,
         `Nonce: ${nonceHex}`,
-      ].join("\\n");
+      ].join("\n");
       const { error } = await admin.rpc("create_near_wallet_registration_challenge_v1", {
         p_owner_id: user.id, p_id: challengeId, p_account_id: accountId,
         p_nonce_hex: nonceHex, p_message: message,
