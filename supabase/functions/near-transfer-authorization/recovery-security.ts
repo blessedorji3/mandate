@@ -1,5 +1,9 @@
 const encoder = new TextEncoder();
 
+function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.slice().buffer as ArrayBuffer;
+}
+
 function base58Decode(value: string): Uint8Array {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   let n = 0n;
@@ -65,7 +69,7 @@ function nep413Bytes(message: string, nonce: Uint8Array, recipient: string) {
 }
 
 async function sha256(bytes: Uint8Array) {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", asArrayBuffer(bytes)));
 }
 
 export async function verifyNep413(
@@ -82,8 +86,8 @@ export async function verifyNep413(
     const sig = base64Decode(signature);
     if (key.length !== 32 || sig.length !== 64 || nonce.length !== 32) return false;
     const digest = await sha256(nep413Bytes(message, nonce, recipient));
-    const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "Ed25519" }, false, ["verify"]);
-    return await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, sig, digest);
+    const cryptoKey = await crypto.subtle.importKey("raw", asArrayBuffer(key), { name: "Ed25519" }, false, ["verify"]);
+    return await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, asArrayBuffer(sig), asArrayBuffer(digest));
   } catch {
     // Malformed key/signature encodings are an authentication failure, not a server error.
     return false;
