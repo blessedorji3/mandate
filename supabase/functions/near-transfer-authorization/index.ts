@@ -123,19 +123,56 @@ function evaluateTestTransferPolicy(policy: Record<string, unknown>) {
   }
   return { outcome: "ALLOW", reason: "POLICY_CHECKS_PASSED", message: "The exact NEAR Testnet transfer satisfies the active policy." };
 }
+const TESTNET_RPC_ENDPOINTS = [
+  "https://rpc.testnet.fastnear.com",
+  "https://archival-rpc.testnet.fastnear.com",
+] as const;
+
+async function nearTestnetRpc(
+  request: Record<string, unknown>,
+  operation: string,
+): Promise<Record<string, any>> {
+  let lastFailure = "No Testnet RPC endpoint responded.";
+  for (const endpoint of TESTNET_RPC_ENDPOINTS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        lastFailure = `${endpoint} returned HTTP ${response.status}`;
+        continue;
+      }
+      const payload = await response.json();
+      if (payload.error) {
+        lastFailure = payload.error.message ?? "The RPC could not return the requested Testnet data.";
+        continue;
+      }
+      if (!payload.result || typeof payload.result !== "object") {
+        lastFailure = "The RPC returned an invalid response.";
+        continue;
+      }
+      return payload.result as Record<string, any>;
+    } catch (error) {
+      lastFailure = error instanceof Error ? error.message : "Unknown RPC network error.";
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error(`${operation} failed on NEAR Testnet RPC providers: ${lastFailure}`);
+}
+
 async function rpcViewAccessKeys(accountId: string) {
-  const response = await fetch("https://rpc.testnet.near.org", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: "mandate-access-key-check", method: "query",
-      params: { request_type: "view_access_key_list", finality: "final", account_id: accountId },
-    }),
-  });
-  if (!response.ok) throw new Error("NEAR Testnet RPC unavailable");
-  const result = await response.json();
-  if (result.error || !Array.isArray(result.result?.keys)) throw new Error("Could not verify NEAR account access keys");
-  return result.result.keys as Array<{ public_key: string; access_key: { permission: unknown } }>;
+  const result = await nearTestnetRpc({
+    jsonrpc: "2.0", id: "mandate-access-key-check", method: "query",
+    params: { request_type: "view_access_key_list", finality: "final", account_id: accountId },
+  }, "NEAR Testnet access-key verification");
+  if (!Array.isArray(result.keys)) throw new Error("Could not verify NEAR account access keys");
+  return result.keys as Array<{ public_key: string; access_key: { permission: unknown } }>;
 }
 async function verifyNep413(message: string, nonce: Uint8Array, recipient: string, publicKey: string, signature: string) {
   const [keyType, encodedKey] = publicKey.split(":");
@@ -150,28 +187,19 @@ async function verifyNep413(message: string, nonce: Uint8Array, recipient: strin
 
 async function verifyOnChainTransfer(transactionHash: string, signerAccountId: string) {
   if (base58Decode(transactionHash).length !== 32) throw new Error("Invalid NEAR transaction hash");
-  const response = await fetch("https://rpc.testnet.near.org", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0", id: "mandate-verify-transfer",
-      method: "EXPERIMENTAL_tx_status",
-      params: [transactionHash, signerAccountId, "FINAL"],
-    }),
-  });
-  if (!response.ok) throw new Error("NEAR Testnet transaction lookup failed");
-  const payload = await response.json();
-  if (payload.error || !payload.result?.transaction) throw new Error("Transaction is not yet available on NEAR Testnet");
-  const tx = payload.result.transaction;
-  if (tx.hash !== transactionHash || tx.signer_id !== signerAccountId ||
+  const result = await nearTestnetRpc({
+    jsonrpc: "2.0", id: "mandate-verify-transfer", method: "tx",
+    params: { tx_hash: transactionHash, sender_account_id: signerAccountId, wait_until: "FINAL" },
+  }, "NEAR Testnet transaction verification");
+  const tx = result.transaction;
+  if (!tx || tx.hash !== transactionHash || tx.signer_id !== signerAccountId ||
       tx.receiver_id !== TEST_TRANSFER.receiverId || !Array.isArray(tx.actions) ||
       tx.actions.length !== 1 || tx.actions[0]?.Transfer?.deposit !== TEST_TRANSFER.amountAtomic) {
     throw new Error("On-chain transaction does not match the exact MANDATE-authorized transfer");
   }
-  const status = payload.result.status;
-  if (!status || typeof status !== "object" ||
-      !("SuccessValue" in status || "SuccessReceiptId" in status) ||
-      "Failure" in status) {
+  const status = result.status;
+  if (result.final_execution_status !== "FINAL" || !status || typeof status !== "object" ||
+      !("SuccessValue" in status || "SuccessReceiptId" in status) || "Failure" in status) {
     throw new Error("The NEAR Testnet transaction did not complete successfully");
   }
   return {
@@ -365,7 +393,16 @@ Deno.serve(async (req: Request) => {
 
     return reply({ error: "Unknown action." }, 400);
   } catch (error) {
-    console.error("NEAR transfer authorization error:", error instanceof Error ? error.message : "unknown");
-    return reply({ error: "Authorization service failed closed. No transaction was signed or sent." }, 503);
+    const detail = error instanceof Error ? error.message : "Unknown authorization error.";
+    console.error("NEAR transfer authorization error:", detail);
+    if (body.action === "verify_transaction") {
+      return reply({
+        error: "The wallet has already submitted this transaction, but MANDATE could not verify its final Testnet status yet. Do not send it again; retry verification using the same transaction hash.",
+        code: "TRANSACTION_VERIFICATION_UNAVAILABLE",
+        retryable: true,
+        transactionHash: typeof body.transactionHash === "string" ? body.transactionHash : null,
+      }, 503);
+    }
+    return reply({ error: detail || "Authorization service unavailable. No transaction was submitted by this request." }, 503);
   }
 });
