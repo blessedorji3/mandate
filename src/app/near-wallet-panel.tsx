@@ -32,6 +32,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("Preparing secure wallet connection…");
   const [txHash, setTxHash] = useState("");
+  const [receipt, setReceipt] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -42,13 +43,11 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       setAccountId(event.accounts[0]?.accountId ?? null);
       setNotice("Wallet connected to NEAR Testnet.");
       setError("");
-      setTxHash("");
     };
     const handleSignOut = () => {
       if (!active) return;
       setAccountId(null);
       setNotice("Wallet disconnected.");
-      setTxHash("");
     };
 
     async function initialize() {
@@ -133,12 +132,38 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
     }
   }
 
+  async function retryTransactionVerification() {
+    if (!txHash || !receipt || !accountId || busy) return;
+    setBusy(true);
+    setError("");
+    setNotice("Retrying verification of the existing transaction only. No new transfer will be sent…");
+    try {
+      const chainResult = await authorizationRequest({
+        action: "verify_transaction",
+        transactionHash: txHash,
+        signerAccountId: accountId,
+        receipt,
+      });
+      if (chainResult.verified !== true || chainResult.authorizationBound !== true ||
+          chainResult.receiverId !== TRANSFER.receiverId ||
+          chainResult.amountAtomic !== TRANSFER.amountAtomic) {
+        throw new Error("MANDATE has not yet verified and bound this existing transaction.");
+      }
+      setNotice("Verified on NEAR Testnet: the exact 0.001 NEAR transfer reached the confirmed recipient.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not verify the existing transaction yet.");
+      setNotice("The existing transaction remains locked. Do not send it again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function executeTestTransfer() {
     const connector = connectorRef.current;
     if (!connector || !accountId || busy) return;
     setBusy(true);
     setError("");
-    setTxHash("");
+    if (txHash) return;
     setNotice("Checking your active MANDATE policy…");
     try {
       const challenge = await authorizationRequest({
@@ -179,6 +204,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
         throw new Error("MANDATE did not issue a one-time authorization. Nothing was sent.");
       }
 
+      setReceipt(verified.receipt);
       setNotice("Consuming the one-time authorization. Next, your wallet will ask you to approve the transfer…");
       const consumed = await authorizationRequest({
         action: "consume",
@@ -250,8 +276,8 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy}>
-            {busy ? "Working…" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || Boolean(txHash)}>
+            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
           {txHash && (
