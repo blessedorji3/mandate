@@ -424,40 +424,6 @@ begin
  return found;
 end $$;
 
-     or p_public_key !~ '^ed25519:[1-9A-HJ-NP-Za-km-z]{40,50}
-    if not exists(select 1 from mandate_private.near_wallet_recovery_credentials c
-      where c.owner_id=p_owner_id and c.consumed_at is null) then
-      raise exception 'An active independent MANDATE recovery code is required';
-    end if;
-    if not exists(select 1 from mandate_private.near_owner_wallets w where w.owner_id=p_owner_id) then
-      raise exception 'Wallet recovery is available only for accounts with wallet history';
-    end if;
-    if exists(select 1 from mandate_private.near_wallet_recovery_requests r
-      where r.owner_id=p_owner_id and r.status='pending') then
-      raise exception 'A wallet recovery request is already pending';
-    end if;
-    if exists(select 1 from mandate_private.near_owner_wallets w
-      where w.account_id=p_account_id and w.revoked_at is null and w.owner_id<>p_owner_id) then
-      raise exception 'The replacement NEAR wallet is already active under another MANDATE account';
-    end if;
-  else
-    select * into v_request from mandate_private.near_wallet_recovery_requests
-      where id=p_request_id and owner_id=p_owner_id and status='pending' for update;
-    if not found or v_request.available_at>now() then
-      raise exception 'Recovery is not ready for finalization';
-    end if;
-    if v_request.new_account_id<>p_account_id or v_request.new_public_key<>p_public_key then
-      raise exception 'The finalization wallet does not match the pending recovery request';
-    end if;
-  end if;
-
-  insert into mandate_private.near_wallet_recovery_action_challenges
-    (id,owner_id,request_id,action,account_id,public_key,nonce_hex,message,expires_at)
-  values(p_id,p_owner_id,p_request_id,p_action,p_account_id,p_public_key,p_nonce_hex,p_message,now()+interval '5 minutes');
-  return p_id;
-end;
-$$;
-
 create or replace function public.get_near_wallet_recovery_action_challenge_v1(p_owner_id uuid,p_id uuid)
 returns table(id uuid,request_id uuid,action text,account_id text,public_key text,nonce_hex text,message text,expires_at timestamptz)
 language sql security definer
