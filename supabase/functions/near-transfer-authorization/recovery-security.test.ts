@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
+  findActiveFullAccessKey,
   isDifferentReplacementWallet,
   recoveryChallengeMatches,
   recoveryTestUtils,
@@ -94,3 +95,15 @@ async function signNep413(
   const signature = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, privateKey, digest.slice().buffer as ArrayBuffer));
   return btoa(String.fromCharCode(...signature));
 }
+
+Deno.test("rejects revoked, removed, and restricted NEAR signing keys", () => {
+  const keys = [
+    { public_key: "ed25519:revoked", access_key: { permission: "FullAccess" } },
+    { public_key: "ed25519:function-call", access_key: { permission: { FunctionCall: {} } } },
+  ];
+  assertEquals(findActiveFullAccessKey(keys, "ed25519:revoked")?.public_key, "ed25519:revoked");
+  // The caller receives the live NEAR access-key list; removed/revoked keys are absent from it.
+  assertEquals(findActiveFullAccessKey(keys, "ed25519:removed"), null);
+  assertEquals(findActiveFullAccessKey(keys, "ed25519:function-call"), null);
+  assertEquals(findActiveFullAccessKey([], "ed25519:revoked"), null);
+});
