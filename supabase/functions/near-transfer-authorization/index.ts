@@ -17,6 +17,7 @@ const ALLOWED_ORIGINS = new Set([
   "https://mandate-snowy.vercel.app",
   "https://mandate-git-feature-near-transfer-authorization-web3pass.vercel.app",
   "https://mandate-git-feat-owner-signed-near-approval-web3pass.vercel.app",
+  "https://mandate-git-feat-wallet-connection-ux-web3pass.vercel.app",
 ]);
 function responseHeaders(origin: string) {
   return {
