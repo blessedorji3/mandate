@@ -201,8 +201,10 @@ export function NearWalletPanel() {
         action: "verify_transaction",
         transactionHash: hash,
         signerAccountId: accountId,
+        receipt: verified.receipt,
       });
-      if (chainResult.verified !== true || chainResult.receiverId !== TRANSFER.receiverId ||
+      if (chainResult.verified !== true || chainResult.authorizationBound !== true ||
+          chainResult.receiverId !== TRANSFER.receiverId ||
           chainResult.amountAtomic !== TRANSFER.amountAtomic) {
         throw new Error("MANDATE could not verify the exact transfer on NEAR Testnet. Check the explorer before retrying.");
       }
