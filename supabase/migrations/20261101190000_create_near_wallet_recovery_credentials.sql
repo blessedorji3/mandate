@@ -191,3 +191,91 @@ revoke all on function public.complete_near_wallet_recovery_setup_v1(uuid,uuid,t
 grant execute on function public.create_near_wallet_recovery_setup_challenge_v1(uuid,uuid,text,text,text) to service_role;
 grant execute on function public.get_near_wallet_recovery_setup_challenge_v1(uuid,uuid) to service_role;
 grant execute on function public.complete_near_wallet_recovery_setup_v1(uuid,uuid,text,text) to service_role;
+
+
+-- Recovery credentials are mandatory before any NEAR wallet can be enrolled.
+-- This closes the "email login + new wallet signature" replacement path.
+create or replace function public.create_near_wallet_registration_challenge_v1(
+ p_owner_id uuid,p_id uuid,p_account_id text,p_nonce_hex text,p_message text
+) returns uuid language plpgsql security definer
+set search_path=pg_catalog,public,mandate_private as $$
+declare v_count integer;
+begin
+ if p_owner_id is null or p_id is null or p_account_id !~ '^[a-z0-9._-]{2,64}[.]testnet$'
+   or p_nonce_hex !~ '^[0-9a-f]{64}$' or length(p_message)>2048 then
+   raise exception 'Invalid wallet registration challenge';
+ end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
+ if not exists(select 1 from mandate_private.near_wallet_recovery_credentials
+   where owner_id=p_owner_id and consumed_at is null) then
+   raise exception 'Establish your independent MANDATE recovery code before registering a NEAR wallet';
+ end if;
+ select count(*) into v_count from mandate_private.near_wallet_registration_challenges
+  where owner_id=p_owner_id and created_at>now()-interval '5 minutes';
+ if v_count>=5 then raise exception 'Wallet registration rate limit exceeded'; end if;
+ if exists(select 1 from mandate_private.near_owner_wallets where owner_id=p_owner_id) then
+   raise exception 'This MANDATE account has previous NEAR wallet history. Use the official recovery process to replace it.';
+ end if;
+ if exists(select 1 from mandate_private.near_owner_wallets
+   where account_id=p_account_id and revoked_at is null and owner_id<>p_owner_id) then
+   raise exception 'This NEAR account is already registered to another MANDATE owner';
+ end if;
+ insert into mandate_private.near_wallet_registration_challenges(id,owner_id,account_id,nonce_hex,message,expires_at)
+ values(p_id,p_owner_id,p_account_id,p_nonce_hex,p_message,now()+interval '5 minutes');
+ return p_id;
+end $$;
+
+create or replace function public.complete_near_wallet_registration_v1(
+ p_owner_id uuid,p_id uuid,p_public_key text
+) returns boolean language plpgsql security definer
+set search_path=pg_catalog,public,mandate_private as $$
+declare c mandate_private.near_wallet_registration_challenges%rowtype;
+begin
+ if p_owner_id is null or p_public_key !~ '^ed25519:[1-9A-HJ-NP-Za-km-z]{40,50}$' then return false; end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text,0));
+ if not exists(select 1 from mandate_private.near_wallet_recovery_credentials
+   where owner_id=p_owner_id and consumed_at is null) then
+   raise exception 'An active MANDATE recovery code is required before wallet registration';
+ end if;
+ select * into c from mandate_private.near_wallet_registration_challenges
+  where id=p_id and owner_id=p_owner_id and consumed_at is null and expires_at>now() for update;
+ if not found then return false; end if;
+ if exists(select 1 from mandate_private.near_owner_wallets where owner_id=p_owner_id) then
+   raise exception 'This MANDATE account has previous NEAR wallet history. Use the official recovery process to replace it.';
+ end if;
+ update mandate_private.near_wallet_registration_challenges set consumed_at=now()
+  where id=c.id and owner_id=p_owner_id and consumed_at is null;
+ if not found then return false; end if;
+ insert into mandate_private.near_owner_wallets(owner_id,account_id,public_key,verified_at,revoked_at)
+ values(p_owner_id,c.account_id,p_public_key,now(),null)
+ on conflict(owner_id,account_id) do update
+ set public_key=excluded.public_key,verified_at=now(),revoked_at=null;
+ return true;
+exception when unique_violation then
+ raise exception 'A NEAR sender wallet is already active for this MANDATE account, or this NEAR account belongs to another MANDATE owner';
+end $$;
+
+create or replace function public.get_near_wallet_recovery_status_v1(p_owner_id uuid)
+returns table(code_established boolean, code_consumed boolean, has_wallet_history boolean)
+language sql security definer
+set search_path=pg_catalog,public,mandate_private as $$
+ select
+   exists(select 1 from mandate_private.near_wallet_recovery_credentials c where c.owner_id=p_owner_id),
+   exists(select 1 from mandate_private.near_wallet_recovery_credentials c where c.owner_id=p_owner_id and c.consumed_at is not null),
+   exists(select 1 from mandate_private.near_owner_wallets w where w.owner_id=p_owner_id);
+$$;
+
+create or replace function public.list_near_wallet_recovery_historical_wallets_v1(p_owner_id uuid)
+returns table(account_id text, public_key text, revoked_at timestamptz)
+language sql security definer
+set search_path=pg_catalog,public,mandate_private as $$
+ select w.account_id,w.public_key,w.revoked_at
+ from mandate_private.near_owner_wallets w
+ where w.owner_id=p_owner_id
+ order by w.created_at desc;
+$$;
+
+revoke all on function public.get_near_wallet_recovery_status_v1(uuid) from public,anon,authenticated;
+revoke all on function public.list_near_wallet_recovery_historical_wallets_v1(uuid) from public,anon,authenticated;
+grant execute on function public.get_near_wallet_recovery_status_v1(uuid) to service_role;
+grant execute on function public.list_near_wallet_recovery_historical_wallets_v1(uuid) to service_role;
