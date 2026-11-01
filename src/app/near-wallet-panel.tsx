@@ -33,6 +33,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const [notice, setNotice] = useState("Preparing secure wallet connection…");
   const [txHash, setTxHash] = useState("");
   const [receipt, setReceipt] = useState("");
+  const [authorizationConsumed, setAuthorizationConsumed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -214,6 +215,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       if (consumed.consumed !== true) {
         throw new Error("The one-time authorization could not be consumed. Nothing was sent.");
       }
+      setAuthorizationConsumed(true);
 
       const outcome = await wallet.signAndSendTransaction({
         network: "testnet",
@@ -276,8 +278,8 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || Boolean(txHash)}>
-            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || Boolean(txHash) || authorizationConsumed}>
+            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
           {txHash && receipt && error && (
