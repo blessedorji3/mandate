@@ -86,3 +86,17 @@ Stage One is **not yet certified complete**. Application CI, database CI, and li
 - No independent read-only NEAR Testnet access-key response for `securewithmandate.testnet` has yet been captured in this review. The external Testnet wallet registration/recovery lifecycle remains unverified. No on-chain key has been deleted and no funds have been moved.
 
 **Revised Stage One decision:** not certified complete. Code and CI evidence are stronger and current on head `aba14e8d`, and a matching Vercel Preview is READY. Remaining gates are Vercel-authorized page-level preview testing, a read-only NEAR Testnet access-key baseline and approved wallet lifecycle exercise, and an explicit documented risk acceptance for the disabled leaked-password check before any public launch. Production stays untouched until separately authorized.
+
+
+## Live production verification update — 2026-11-02
+
+**This section supersedes earlier statements above that production migrations were unapplied and the Edge Function remained at version 9. Those statements were a pre-deployment snapshot and are no longer current.**
+
+- The three recovery migrations are now applied to the production Supabase project, and `near-transfer-authorization` is deployed at active version 11 with JWT verification enabled.
+- **Live same-wallet replacement rejection passed:** the browser sent `recovery_start_challenge` using the currently active `securewithmandate.testnet` wallet as its own replacement. The Edge Function rejected it with: `The replacement wallet must be different from your currently active wallet.`
+- **Post-rejection lifecycle verification passed:** `code_established=true`, `code_consumed=false`, `has_wallet_history=true`, active wallet `securewithmandate.testnet`; request ID, request status, replacement account, start time, and availability time were all null; seconds remaining was 0. No pending recovery or 24-hour freeze was created.
+- **Live recovery database boundary audit passed:** all six `mandate_private.near_wallet_recovery_*` tables have RLS enabled; `anon` and `authenticated` have no SELECT privilege; `service_role` retains the required SELECT privilege. All 11 public recovery RPCs are SECURITY DEFINER with an explicit fixed search_path; EXECUTE is denied to `anon` and `authenticated` and granted to `service_role`.
+- **Live single-sender integrity query passed:** one active wallet row exists; zero owners have multiple active wallets; zero active wallet account IDs are shared across different owners.
+- No recovery was started, no 24-hour freeze was triggered, no funds were moved, and no NEAR on-chain access key was deleted.
+
+**Next security gate:** exercise cross-owner replacement rejection at the live Edge Function boundary (the database integration suite already contains a synthetic cross-owner rejection test), then verify replacement-account FullAccess-key checks without signing or starting a recovery. The full 24-hour recovery lifecycle remains a separate controlled Testnet exercise and must not be initiated without explicit approval.
