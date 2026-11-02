@@ -14,7 +14,21 @@ function fromHex(value: string): Uint8Array {
 async function recoveryRequest(body: Record<string, unknown>) {
   const supabase = createClient();
   const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body });
-  if (error) throw new Error(error.message || "MANDATE recovery service is unavailable.");
+  if (error) {
+    // FunctionsHttpError carries the Edge Function response in context.
+    // Surface the server's safe JSON error instead of the SDK's generic
+    // "non-2xx status code" message, without logging credentials or signatures.
+    const context = (error as { context?: Response }).context;
+    if (context && typeof context.clone === "function") {
+      try {
+        const payload = await context.clone().json();
+        if (payload && typeof payload.error === "string") throw new Error(payload.error);
+      } catch (cause) {
+        if (cause instanceof Error && cause.message !== "Unexpected end of JSON input") throw cause;
+      }
+    }
+    throw new Error(error.message || "MANDATE recovery service is unavailable.");
+  }
   if (!data || typeof data !== "object") throw new Error("MANDATE returned an invalid recovery response.");
   if ("error" in data && typeof data.error === "string") throw new Error(data.error);
   return data as Record<string, any>;
