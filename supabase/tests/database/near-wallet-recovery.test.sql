@@ -351,6 +351,23 @@ select is(
   false,
   'recovery reset challenge cannot be replayed'
 );
+select is(
+  (select count(*)::integer from public.get_near_wallet_recovery_reset_challenge_v1(
+    '10000000-0000-4000-8000-000000000001',
+    '90000000-0000-4000-8000-000000000001'
+  )),
+  0,
+  'successful reset invalidates the challenge against later reuse'
+);
+select ok(
+  not exists (
+    select 1 from information_schema.columns
+    where table_schema='mandate_private'
+      and table_name='near_wallet_recovery_credentials'
+      and column_name in ('recovery_code','plaintext_code','code')
+  ),
+  'recovery credential schema has no plaintext recovery-code column'
+);
 select ok(
   (select account_id='new-wallet-a.testnet' and revoked_at is null
    from mandate_private.near_owner_wallets
