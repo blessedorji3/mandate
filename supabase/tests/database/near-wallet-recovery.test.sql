@@ -307,7 +307,7 @@ select is(
   'active registered wallet can create a recovery-code reset challenge'
 );
 select throws_ok(
-  $$select public.create_near_wallet_recovery_reset_challenge_v1(
+  $$$select public.create_near_wallet_recovery_reset_challenge_v1(
     '10000000-0000-4000-8000-000000000001',
     '90000000-0000-4000-8000-000000000009',
     'old-wallet-a.testnet',
@@ -407,12 +407,12 @@ select public.create_near_wallet_recovery_reset_challenge_v1(
   repeat('c',64),'third reset rate-limit fixture'
 );
 select throws_ok(
-  $select public.create_near_wallet_recovery_reset_challenge_v1(
+  $$select public.create_near_wallet_recovery_reset_challenge_v1(
     '10000000-0000-4000-8000-000000000001',
     '90000000-0000-4000-8000-000000000004',
     'new-wallet-a.testnet','ed25519:' || repeat('2',44),
     repeat('d',64),'fourth reset rate-limit fixture'
-  )$,
+  )$$,
   'P0001',
   'Recovery-code reset rate limit exceeded',
   'fourth recovery-code reset challenge within one hour is rejected'
@@ -516,12 +516,12 @@ select is(
  true,'second owner can start recovery'
 );
 select throws_ok(
- $select public.create_near_wallet_recovery_reset_challenge_v1(
+ $$select public.create_near_wallet_recovery_reset_challenge_v1(
   '10000000-0000-4000-8000-000000000002',
   '90000000-0000-4000-8000-000000000006',
   'old-wallet-b.testnet','ed25519:' || repeat('3',44),
   repeat('f',64),'reset during pending wallet recovery'
- )$,
+ )$$,
  'P0001',
  'Recovery-code reset is unavailable while wallet recovery is pending',
  'recovery-code reset is blocked during a pending 24-hour wallet recovery'
