@@ -21,9 +21,9 @@ export default async function WalletPage() {
           <p>Connect a NEAR Testnet account. MANDATE will inspect proposed actions separately from the wallet that signs them.</p>
           <div className="agent-boundary"><span className="live-dot" /> Testnet only <b>·</b> Non-custodial connection <b>·</b> No automatic transactions</div>
         </div>
+        <NearWalletPanel />
         <RecoveryCodePanel />
         <RecoveryLifecyclePanel />
-        <NearWalletPanel />
         <p className="agent-prototype-note"><a href="/">Back to MANDATE dashboard</a> · <a href="/agent">Open agent chat</a></p>
       </div>
     </main>
