@@ -72,4 +72,4 @@ Production migration history currently ends at `20261101150802`. None of the thr
 
 ## Current decision
 
-Stage One is **not yet certified complete**. The database suite and CI milestones are real and useful, but live Auth integration, on-chain key-deletion evidence, and leaked-password protection remain open. This is a documented risk disposition, not a claim that all findings are resolved.
+Stage One is **not yet certified complete**. Application CI, database CI, and live local GoTrue/JWT integration have passed. Remaining gates are external NEAR Testnet baseline and wallet lifecycle evidence, the project's leaked-password protection setting and a clean follow-up Security Advisor review, and final end-to-end verification. This is a documented risk disposition, not a claim that all findings are resolved.
