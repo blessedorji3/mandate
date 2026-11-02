@@ -21,6 +21,7 @@ const ALLOWED_ORIGINS = new Set([
   "https://mandate-git-feat-wallet-connection-ux-web3pass.vercel.app",
   "https://mandate-git-feat-recovery-code-reset-web3pass.vercel.app",
   "https://mandate-jckxw5flf-web3pass.vercel.app",
+  "https://mandate-jdzunl9rx-web3pass.vercel.app",
 ]);
 function responseHeaders(origin: string) {
   return {
