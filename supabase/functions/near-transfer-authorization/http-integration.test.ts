@@ -31,6 +31,18 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
     if (url.endsWith("/rest/v1/rpc/get_near_owner_wallet_v1")) {
       return Response.json([]);
     }
+    if (url.endsWith("/rest/v1/rpc/get_near_wallet_recovery_lifecycle_v1")) {
+      return Response.json([{
+        code_established: true,
+        code_consumed: false,
+        has_wallet_history: true,
+        active_wallet_account_id: "owner-wallet.testnet",
+        request_id: "70000000-0000-4000-8000-000000000001",
+        request_status: "pending",
+        new_account_id: "replacement-wallet.testnet",
+        seconds_remaining: 86000,
+      }]);
+    }
     return Response.json({ message: "Unexpected test request" }, { status: 500 });
   }) as typeof fetch;
 
@@ -39,7 +51,7 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
     // the Edge Function module reads its environment variables.
     const { handleRequest } = await import("./index.ts");
     const origin = "https://mandate-snowy.vercel.app";
-    const makeRequest = (authorization?: string) => new Request(
+    const makeRequest = (authorization?: string, action = "wallet_status") => new Request(
       "https://mandate-http-test.invalid/functions/v1/near-transfer-authorization",
       {
         method: "POST",
@@ -49,7 +61,7 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
           ...(authorization ? { authorization } : {}),
         },
         body: JSON.stringify({
-          action: "wallet_status",
+          action,
           accountId: "owner-wallet.testnet",
           // This must never override the authenticated user identity.
           ownerId: "10000000-0000-4000-8000-000000000099",
@@ -66,6 +78,19 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
     const valid = await handleRequest(makeRequest("Bearer valid-test-user-token"));
     assertEquals(valid.status, 200, "valid authenticated request should reach the RPC");
     assertEquals(await valid.json(), { registered: false, wallet: null });
+
+    const frozen = await handleRequest(makeRequest("Bearer valid-test-user-token", "challenge"));
+    assertEquals(frozen.status, 409, "a pending recovery must freeze transfer authorization at the HTTP boundary");
+    const frozenBody = await frozen.json();
+    assertEquals(
+      (frozenBody as Record<string, unknown>).error,
+      "Financial authorizations are frozen while wallet recovery is pending.",
+    );
+    assertEquals(
+      calls.some((call) => call.url.includes("/rest/v1/rpc/create_near_transfer_challenge_v2")),
+      false,
+      "a frozen account must not create a transfer challenge",
+    );
 
     const rpcCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/get_near_owner_wallet_v1"));
     assertEquals(
