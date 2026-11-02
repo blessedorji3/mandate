@@ -1,0 +1,72 @@
+# MANDATE Stage One — Security and Deployment Review
+
+**Review date:** 2026-11-02  
+**Reviewed PR:** #6 — `feat/wallet-connection-ux`  
+**Production Supabase project:** `abyyyehfivahedvjrcwj`  
+**Status:** Review in progress. This document is not a production-readiness approval.
+
+## Verified evidence
+
+- Recovery migration tests run against a disposable local Supabase stack.
+- The database suite passed 44 assertions on commit `ce5ccb9c5d9c52313919213b7012557137027fca`.
+- The independent PostgreSQL concurrency test passed: two sessions attempted recovery start for one owner; exactly one succeeded and exactly one pending request remained.
+- Application CI passed on `c6c0008161d12fbca8dd4081478a2bc6b82967a4`.
+- The Edge Function HTTP test checks missing/invalid bearer tokens and confirms that the database owner ID is taken from the authenticated Supabase user, not caller-supplied JSON. Its Supabase HTTP boundary is mocked; it is not a live GoTrue/JWT end-to-end test.
+- The recovery database tests verify that pending recovery blocks new transfer challenges, receipt consumption, and transaction binding; outstanding receipts are invalidated.
+- Production was inspected read-only. The recovery migrations are not applied there and the deployed Edge Function is still version 9 without this PR's recovery implementation.
+
+## Supabase Security Advisor findings
+
+### RLS enabled with no policies — INFO (2 tables)
+
+- `mandate_private.near_owner_wallets`
+- `mandate_private.near_wallet_registration_challenges`
+
+**Disposition: intentionally deny-all for API roles; accepted as informational, not silently dismissed.**
+
+These tables are in the private schema, have RLS enabled, and have no policies. Direct table privileges for `anon` and `authenticated` are revoked. The application accesses them through narrowly scoped, service-role-only RPCs in the Edge Function. Adding permissive policies would weaken this boundary. A future reviewer should verify that the private schema is not exposed through PostgREST and that each security-definer RPC has a fixed safe search_path, explicit owner scoping, and service_role-only EXECUTE grants.
+
+### Leaked password protection disabled — WARN (1 finding)
+
+**Disposition: outstanding launch hardening requirement.**
+
+Supabase Auth's compromised-password protection is currently disabled. The connected Supabase management interface used for this review exposes project, migration, Edge Function, SQL, and advisor operations, but no Auth configuration update operation. It has therefore not been changed. Before public launch, an authorized project administrator must enable leaked-password protection in Supabase Dashboard → Authentication → Settings → Password Security, then re-run the Security Advisor and test signup/password update behavior.
+
+Reference: https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection
+
+## NEAR Testnet access-key removal — critical distinction
+
+The PR's recovery finalization revokes the old wallet row **inside MANDATE's database** and makes the replacement wallet the only active MANDATE sender. It does not submit a NEAR `DeleteKey` action to the old NEAR account.
+
+A NEAR access key can only be removed by an authorized transaction signed by a remaining key that has permission to manage keys on that same account. If the old wallet is lost and no other authorized key remains, MANDATE cannot cryptographically delete its key from-chain. A replacement wallet cannot remove keys from an unrelated old account.
+
+Consequently:
+- MANDATE database revocation must never be described as on-chain key removal.
+- A disposable Testnet `DeleteKey` demonstration would prove NEAR protocol key deletion works, but would not prove recovery can revoke a lost old wallet.
+- The recovery design must retain the distinction and clearly disclose that old NEAR account keys remain on-chain unless the account owner separately authorizes their removal.
+- No user wallet keys or funds may be used for this test.
+
+## Migration and deployment sequence review
+
+The PR contains new wallet single-sender and recovery migrations, including:
+- `20261101170000_enforce_single_active_near_owner_wallet.sql`
+- `20261101190000_create_near_wallet_recovery_credentials.sql`
+- `20261101200000_add_delayed_near_wallet_recovery.sql`
+
+Production migration history currently ends at `20261101150802`. None of the three PR migrations is applied in production. The deployed Edge Function version 9 does not include this recovery implementation. Applying only the migration or deploying only the function would leave the system inconsistent.
+
+**Required order after all gates pass:**
+1. Review the complete migration diff and grants against the production schema; take a verified backup/rollback plan.
+2. Apply migrations in version order during an approved change window.
+3. Verify migration history, RLS, table privileges, RPC grants, constraints, indexes, and owner isolation.
+4. Deploy the matching Edge Function source and all imported files with JWT verification enabled.
+5. Verify function version/source hash and required secrets without printing secret values.
+6. Run authenticated smoke tests: wallet status, recovery lifecycle, start/freeze, blocked transfer challenge/consume/bind, cancel, and finalization.
+7. Verify NEAR Testnet key lists and MANDATE's registered-wallet state independently.
+8. Re-run Security Advisor, CI, and the production smoke tests; keep rollback steps ready.
+
+**Current production state:** untouched. Do not merge, apply migrations, or deploy until the outstanding live authentication test, Testnet key-deletion demonstration, Auth password setting, and final review are complete.
+
+## Current decision
+
+Stage One is **not yet certified complete**. The database suite and CI milestones are real and useful, but live Auth integration, on-chain key-deletion evidence, and leaked-password protection remain open. This is a documented risk disposition, not a claim that all findings are resolved.
