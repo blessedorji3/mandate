@@ -307,7 +307,7 @@ select is(
   'active registered wallet can create a recovery-code reset challenge'
 );
 select throws_ok(
-  $select public.create_near_wallet_recovery_reset_challenge_v1(
+  $$select public.create_near_wallet_recovery_reset_challenge_v1(
     '10000000-0000-4000-8000-000000000001',
     '90000000-0000-4000-8000-000000000009',
     'old-wallet-a.testnet',
