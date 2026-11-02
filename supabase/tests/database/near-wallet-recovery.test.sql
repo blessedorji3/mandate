@@ -283,6 +283,79 @@ select is(
   'finalization challenge cannot be replayed'
 );
 
+-- Recovery-code reset is authorized by the active wallet and rotates only its verifier.
+select ok(
+  (select relrowsecurity from pg_class where oid='mandate_private.near_wallet_recovery_reset_challenges'::regclass),
+  'recovery reset challenge table has RLS enabled'
+);
+select ok(
+  not has_table_privilege('authenticated','mandate_private.near_wallet_recovery_reset_challenges','SELECT')
+  and not has_function_privilege('authenticated','public.complete_near_wallet_recovery_reset_v1(uuid,uuid,text)','EXECUTE')
+  and has_function_privilege('service_role','public.complete_near_wallet_recovery_reset_v1(uuid,uuid,text)','EXECUTE'),
+  'only service role can access recovery reset records and RPCs'
+);
+select is(
+  public.create_near_wallet_recovery_reset_challenge_v1(
+    '10000000-0000-4000-8000-000000000001',
+    '90000000-0000-4000-8000-000000000001',
+    'new-wallet-a.testnet',
+    'ed25519:' || repeat('2',44),
+    repeat('a',64),
+    'local recovery-code reset proof'
+  ),
+  '90000000-0000-4000-8000-000000000001'::uuid,
+  'active registered wallet can create a recovery-code reset challenge'
+);
+select is(
+  (select count(*)::integer from public.get_near_wallet_recovery_reset_challenge_v1(
+    '10000000-0000-4000-8000-000000000002',
+    '90000000-0000-4000-8000-000000000001'
+  )),
+  0,
+  'recovery reset challenge lookup is owner-bound'
+);
+select is(
+  public.complete_near_wallet_recovery_reset_v1(
+    '10000000-0000-4000-8000-000000000001',
+    '90000000-0000-4000-8000-000000000001',
+    repeat('3',64)
+  ),
+  true,
+  'valid active-wallet challenge atomically resets the recovery verifier'
+);
+select is(
+  (select encode(code_hash,'hex') from mandate_private.near_wallet_recovery_credentials
+   where owner_id='10000000-0000-4000-8000-000000000001'),
+  repeat('3',64),
+  'recovery reset stores only the new verifier hash'
+);
+select is(
+  public.complete_near_wallet_recovery_reset_v1(
+    '10000000-0000-4000-8000-000000000001',
+    '90000000-0000-4000-8000-000000000001',
+    repeat('4',64)
+  ),
+  false,
+  'recovery reset challenge cannot be replayed'
+);
+select ok(
+  (select account_id='new-wallet-a.testnet' and revoked_at is null
+   from mandate_private.near_owner_wallets
+   where owner_id='10000000-0000-4000-8000-000000000001' and revoked_at is null),
+  'recovery-code reset leaves the active registered wallet unchanged'
+);
+select ok(
+  (select request_status is distinct from 'pending'
+   from public.get_near_wallet_recovery_lifecycle_v1('10000000-0000-4000-8000-000000000001')),
+  'recovery-code reset does not start a 24-hour wallet recovery request'
+);
+select ok(
+  (select rotated_at is not null and consumed_at is null
+   from mandate_private.near_wallet_recovery_credentials
+   where owner_id='10000000-0000-4000-8000-000000000001'),
+  'reset credential remains active and is marked rotated'
+);
+
 -- Owner B exercises the explicit cancellation path.
 select public.create_near_wallet_recovery_setup_challenge_v1(
  '10000000-0000-4000-8000-000000000002',
