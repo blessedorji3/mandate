@@ -73,3 +73,16 @@ Production migration history currently ends at `20261101150802`. None of the thr
 ## Current decision
 
 Stage One is **not yet certified complete**. Application CI, database CI, and live local GoTrue/JWT integration have passed. Remaining gates are external NEAR Testnet baseline and wallet lifecycle evidence, the project's leaked-password protection setting and a clean follow-up Security Advisor review, and final end-to-end verification. This is a documented risk disposition, not a claim that all findings are resolved.
+
+## Follow-up verification — 2026-11-02 (latest branch head)
+
+- Latest reviewed branch head: `aba14e8d368215b6bb87ed4d4f0dd619b048c81f`.
+- Both GitHub Actions workflows passed on this exact head: application checks (dependency audit, authorization tests, type-check, build) and database integration (recovery signature/challenge tests, HTTP bearer-auth tests, disposable local GoTrue JWT integration, migration replay/pgTAP, and concurrency test runner).
+- The database integration workflow explicitly invokes `.github/scripts/run-live-auth-integration-test.sh` from the disposable local Supabase stack before pgTAP. The live GoTrue test is therefore part of the passing CI run on this head.
+- Vercel created a READY Preview deployment for this exact branch/head: `https://mandate-nyozcguve-web3pass.vercel.app`. The Vercel integration currently denies the connected session access to fetch this deployment (403 at deployment-protection lookup). The deployment is confirmed READY, but page-level browser/HTTP verification is still blocked pending authorization of the MANDATE project/team in the Vercel connection.
+- The wallet page source on this head renders `NearWalletPanel`, then `RecoveryCodePanel`, then `RecoveryLifecyclePanel` (steps 01/02/03). This confirms source order, not a successful interactive preview test.
+- Production Supabase remains unchanged: migration history still ends at `20261101150802`; all three recovery migrations remain unapplied; `near-transfer-authorization` remains deployed at version 9 with JWT verification enabled.
+- Current Security Advisor still reports the two private-schema RLS/no-policy INFO findings and leaked-password-protection WARN. The private tables are intentionally deny-all for API roles; do not add public/authenticated policies. Leaked-password protection is not enabled because it is unavailable within the project's no-spend constraint. Record this as an accepted pre-launch limitation requiring a documented owner decision; do not represent the advisor as clean.
+- No independent read-only NEAR Testnet access-key response for `securewithmandate.testnet` has yet been captured in this review. The external Testnet wallet registration/recovery lifecycle remains unverified. No on-chain key has been deleted and no funds have been moved.
+
+**Revised Stage One decision:** not certified complete. Code and CI evidence are stronger and current on head `aba14e8d`, and a matching Vercel Preview is READY. Remaining gates are Vercel-authorized page-level preview testing, a read-only NEAR Testnet access-key baseline and approved wallet lifecycle exercise, and an explicit documented risk acceptance for the disabled leaked-password check before any public launch. Production stays untouched until separately authorized.
