@@ -26,6 +26,7 @@ export function RecoveryCodePanel() {
   const [selectedWallet, setSelectedWallet] = useState("");
   const [connectedAccount, setConnectedAccount] = useState("");
   const [hasHistory, setHasHistory] = useState(false);
+  const [activeWallet, setActiveWallet] = useState("");
   const [established, setEstablished] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [copied, setCopied] = useState(false);
@@ -53,12 +54,18 @@ export function RecoveryCodePanel() {
         const wallets = Array.isArray(status.historicalWallets) ? status.historicalWallets : [];
         setHistoricalWallets(wallets);
         setSelectedWallet(wallets[0]?.accountId ?? "");
+        if (status.established === true) {
+          const lifecycle = await recoveryRequest({ action: "recovery_lifecycle" });
+          const active = typeof lifecycle.activeWalletAccountId === "string" ? lifecycle.activeWalletAccountId : "";
+          setActiveWallet(active);
+          setSelectedWallet(active);
+        }
         setNotice(status.established
           ? "An independent recovery code is already established. It cannot be displayed again."
           : status.hasWalletHistory
             ? "This existing account must prove control of a previously registered wallet before creating its recovery code."
             : "Create your independent recovery code before registering your first NEAR wallet.");
-        if (status.hasWalletHistory === true) {
+        if (status.hasWalletHistory === true || status.established === true) {
           const { NearConnector } = await import("@hot-labs/near-connect");
           connector = new NearConnector({ network: "testnet", features: { testnet: true }, autoConnect: false });
           connectorRef.current = connector;
@@ -153,6 +160,37 @@ export function RecoveryCodePanel() {
     }
   }
 
+  async function resetRecoveryCode() {
+    if (!ready || busy || !established || !activeWallet || recoveryCode) return;
+    setBusy(true);
+    setError("");
+    try {
+      const connector = connectorRef.current;
+      if (!connector || connectedAccount !== activeWallet) {
+        throw new Error("Connect your currently active registered wallet before resetting the code.");
+      }
+      const challenge = await recoveryRequest({ action: "recovery_code_reset_challenge" });
+      if (challenge.accountId !== activeWallet || typeof challenge.publicKey !== "string") {
+        throw new Error("MANDATE did not issue a challenge for your active registered wallet.");
+      }
+      const wallet = await connector.wallet();
+      if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
+      setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
+      const signedMessage = await wallet.signMessage({
+        message: challenge.message, recipient: challenge.recipient, nonce: fromHex(challenge.nonceHex),
+        network: "testnet", signerId: activeWallet,
+      }) as unknown as Record<string, unknown>;
+      const result = await recoveryRequest({ action: "recovery_code_reset_verify", challengeId: challenge.challengeId, signedMessage });
+      if (result.reset !== true || typeof result.recoveryCode !== "string") throw new Error("MANDATE did not confirm the recovery-code reset.");
+      setRecoveryCode(result.recoveryCode);
+      setCopied(false);
+      setNotice("Recovery code reset. Your previous code is invalid. Save the new code now; it will not be shown again.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Recovery-code reset failed.");
+      setNotice("Recovery code was not reset.");
+    } finally { setBusy(false); }
+  }
+
   async function copyRecoveryCode() {
     if (!recoveryCode) return;
     try {
@@ -173,7 +211,15 @@ export function RecoveryCodePanel() {
       {established && !recoveryCode && (
         <div className="near-transfer-box">
           <strong>Recovery code already established</strong>
-          <p>For security, MANDATE cannot display the original code again. Keep the copy you saved in a safe place.</p>
+          <p>The original code cannot be displayed again. If you did not save it, you can replace it by proving control of your currently active registered wallet.</p>
+          <p><strong>Active wallet:</strong> {activeWallet || "Could not determine the active wallet."}</p>
+          <button className="outline-button" onClick={connectHistoricalWallet} disabled={!ready || busy || !activeWallet}>
+            {busy ? "Please wait…" : connectedAccount === activeWallet ? "Active wallet connected ✓" : "Connect active wallet"}
+          </button>
+          <button className="inspect-button" onClick={resetRecoveryCode} disabled={!ready || busy || !activeWallet || connectedAccount !== activeWallet}>
+            {busy ? "Verifying wallet signature…" : "Reset recovery code →"}
+          </button>
+          <p>This reset does not change your registered wallet, move funds, or start the 24-hour wallet recovery process.</p>
         </div>
       )}
       {!established && hasHistory && (
