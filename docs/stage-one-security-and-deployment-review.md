@@ -10,8 +10,9 @@
 - Recovery migration tests run against a disposable local Supabase stack.
 - The database suite passed 44 assertions on commit `ce5ccb9c5d9c52313919213b7012557137027fca`.
 - The independent PostgreSQL concurrency test passed: two sessions attempted recovery start for one owner; exactly one succeeded and exactly one pending request remained.
-- Application CI passed on `c6c0008161d12fbca8dd4081478a2bc6b82967a4`.
-- The Edge Function HTTP test checks missing/invalid bearer tokens and confirms that the database owner ID is taken from the authenticated Supabase user, not caller-supplied JSON. Its Supabase HTTP boundary is mocked; it is not a live GoTrue/JWT end-to-end test.
+- Application CI passed on `7b8f871c66ef78c34d519309eda76ac8d3f3785c` (authorization tests, dependency audit, type-check, and build).
+- The mocked HTTP-boundary test checks missing/invalid bearer tokens and confirms that the owner ID is taken from the authenticated Supabase user, not caller-supplied JSON.
+- **Live local GoTrue integration now passes** on `7b8f871c66ef78c34d519309eda76ac8d3f3785c`: the CI script starts a disposable local Supabase stack, creates a disposable Auth user, obtains a real password-grant JWT from local GoTrue, and calls the Edge Function handler with missing, invalid, and real tokens. The real token reaches owner-scoped local database RPCs for recovery lifecycle and wallet status; the test also supplies a conflicting caller `ownerId` and confirms the authenticated user remains authoritative. The disposable Auth user is deleted in `finally`. This test does not call hosted production Supabase.
 - The recovery database tests verify that pending recovery blocks new transfer challenges, receipt consumption, and transaction binding; outstanding receipts are invalidated.
 - Production was inspected read-only. The recovery migrations are not applied there and the deployed Edge Function is still version 9 without this PR's recovery implementation.
 
@@ -65,7 +66,7 @@ Production migration history currently ends at `20261101150802`. None of the thr
 7. Verify NEAR Testnet key lists and MANDATE's registered-wallet state independently.
 8. Re-run Security Advisor, CI, and the production smoke tests; keep rollback steps ready.
 
-**Current production state:** untouched. Do not merge, apply migrations, or deploy until the outstanding live authentication test, Testnet key-deletion demonstration, Auth password setting, and final review are complete.
+**Current production state:** untouched. The live local GoTrue/JWT integration gate is now passed. Remaining Stage One gates are independent Testnet access-key baseline/deletion evidence, enabling leaked-password protection and re-running the advisor, and the final end-to-end recovery/freeze exercise. Do not merge, apply migrations, or deploy until these gates and the final review are complete.
 
 ## Current decision
 
