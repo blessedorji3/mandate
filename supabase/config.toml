@@ -1,5 +1,10 @@
 project_id = "abyyyehfivahedvjrcwj"
 
+# Keep the local disposable database away from the preoccupied 54322 runner port.
+[db]
+port = 55432
+shadow_port = 55430
+
 [functions.agent-inspect]
 verify_jwt = false
 
