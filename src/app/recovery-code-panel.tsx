@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
+import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 
 type HistoricalWallet = { accountId: string; revoked: boolean };
 
@@ -190,10 +191,11 @@ export function RecoveryCodePanel() {
       const wallet = await connector.wallet();
       if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
       setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
-      const signedMessage = await wallet.signMessage({
+      const walletSignedMessage = await wallet.signMessage({
         message: challenge.message, recipient: challenge.recipient, nonce: fromHex(challenge.nonceHex),
         network: "testnet", signerId: activeWallet,
-      }) as unknown as Record<string, unknown>;
+      });
+      const signedMessage = normalizeNearSignedMessage(walletSignedMessage);
       const result = await recoveryRequest({ action: "recovery_code_reset_verify", challengeId: challenge.challengeId, signedMessage });
       if (result.reset !== true || typeof result.recoveryCode !== "string") throw new Error("MANDATE did not confirm the recovery-code reset.");
       setRecoveryCode(result.recoveryCode);
