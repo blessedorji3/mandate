@@ -103,9 +103,9 @@ export function RecoveryCodePanel() {
       const account = connected.accounts[0]?.accountId ?? "";
       setConnectedAccount(account);
       if (!account || account !== selectedWallet) {
-        throw new Error("Connect the previously registered wallet selected above.");
+        throw new Error("Connect the selected registered NEAR wallet.");
       }
-      setNotice("Historical wallet connected. You can now create the recovery code.");
+      setNotice("Registered NEAR wallet connected. You can continue with the requested security action.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not connect the historical wallet.");
     } finally {
