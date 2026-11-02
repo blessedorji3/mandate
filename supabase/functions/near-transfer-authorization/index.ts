@@ -656,6 +656,16 @@ export async function handleRequest(req: Request) {
       if (typeof signer !== "string" || !/^[a-z0-9._-]+\.testnet$/.test(signer)) {
         return reply({ error: "Connect a valid NEAR Testnet account." }, 400);
       }
+      // Fail closed at the HTTP boundary as well as in the database RPCs.
+      // The database remains the final authority and independently blocks races.
+      const { data: recoveryRows, error: recoveryError } = await admin.rpc(
+        "get_near_wallet_recovery_lifecycle_v1", { p_owner_id: user.id },
+      );
+      const recoveryState = Array.isArray(recoveryRows) ? recoveryRows[0] : null;
+      if (recoveryError) throw new Error("Could not verify wallet recovery state");
+      if (recoveryState?.request_status === "pending") {
+        return reply({ error: "Financial authorizations are frozen while wallet recovery is pending." }, 409);
+      }
       const { data: registeredRows, error: registeredError } = await admin.rpc("get_near_owner_wallet_v1", {
         p_owner_id: user.id, p_account_id: signer,
       });
