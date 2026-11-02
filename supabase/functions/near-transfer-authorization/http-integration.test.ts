@@ -63,6 +63,7 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
         body: JSON.stringify({
           action,
           accountId: "owner-wallet.testnet",
+          signerAccountId: "owner-wallet.testnet",
           // This must never override the authenticated user identity.
           ownerId: "10000000-0000-4000-8000-000000000099",
         }),
