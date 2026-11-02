@@ -93,6 +93,19 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
       "a frozen account must not create a transfer challenge",
     );
 
+    const resetBlocked = await handleRequest(makeRequest("Bearer valid-test-user-token", "recovery_code_reset_challenge"));
+    assertEquals(resetBlocked.status, 409, "a pending wallet recovery must block recovery-code reset");
+    assertEquals(resetBlocked.headers.get("cache-control"), "no-store", "reset responses must not be cached");
+    assertEquals(
+      calls.some((call) => call.url.endsWith("/rest/v1/rpc/create_near_wallet_recovery_reset_challenge_v1")),
+      false,
+      "a pending recovery must not create a recovery-code reset challenge",
+    );
+
+    const malformedReset = await handleRequest(makeRequest("Bearer valid-test-user-token", "recovery_code_reset_verify"));
+    assertEquals(malformedReset.status, 400, "reset verification must reject missing challenge and signature fields");
+    assertEquals(malformedReset.headers.get("cache-control"), "no-store", "reset verification responses must not be cached");
+
     const rpcCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/get_near_owner_wallet_v1"));
     assertEquals(
       (rpcCall?.body as Record<string, unknown> | undefined)?.p_owner_id,
