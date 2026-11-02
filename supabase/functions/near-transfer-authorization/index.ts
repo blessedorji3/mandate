@@ -448,6 +448,111 @@ export async function handleRequest(req: Request) {
       return reply({ cancelled: true, message: "Pending recovery cancelled. Financial authorization may resume." });
     }
 
+    if (body.action === "recovery_code_reset_challenge") {
+      const lifecycleResult = await admin.rpc("get_near_wallet_recovery_lifecycle_v1", {
+        p_owner_id: user.id,
+      });
+      if (lifecycleResult.error) throw new Error("Could not load recovery-code reset status");
+      const state = Array.isArray(lifecycleResult.data) ? lifecycleResult.data[0] : null;
+      if (state?.code_established !== true || state?.code_consumed === true || !state?.active_wallet_account_id) {
+        return reply({ error: "An active recovery code and active registered wallet are required." }, 409);
+      }
+      if (state?.request_status === "pending") {
+        return reply({ error: "Recovery-code reset is unavailable while wallet recovery is pending." }, 409);
+      }
+      const accountId = state.active_wallet_account_id as string;
+      const { data: walletRows, error: walletError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: accountId,
+      });
+      const wallet = Array.isArray(walletRows) ? walletRows[0] : null;
+      if (walletError || !wallet?.public_key) return reply({ error: "The active registered wallet could not be verified." }, 403);
+      const accessKeys = await rpcViewAccessKeys(accountId);
+      const fullAccess = findActiveFullAccessKey(accessKeys, wallet.public_key);
+      if (!fullAccess) return reply({ error: "The active registered wallet key is no longer an active FullAccess key." }, 403);
+
+      const challengeId = crypto.randomUUID();
+      const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const message = [
+        "MANDATE RECOVERY CODE RESET — WALLET OWNERSHIP PROOF",
+        "I authorize replacing only my MANDATE independent recovery code. This does not replace or revoke any wallet, move funds, or start the 24-hour wallet recovery process.",
+        `MANDATE owner: ${user.id}`,
+        `Active NEAR account: ${accountId}`,
+        `Active NEAR public key: ${wallet.public_key}`,
+        `Challenge: ${challengeId}`,
+        `Nonce: ${nonceHex}`,
+      ].join("\n");
+      const { error } = await admin.rpc("create_near_wallet_recovery_reset_challenge_v1", {
+        p_owner_id: user.id, p_id: challengeId, p_account_id: accountId,
+        p_public_key: wallet.public_key, p_nonce_hex: nonceHex, p_message: message,
+      });
+      if (error) return reply({ error: error.message || "Could not create recovery-code reset challenge." }, 409);
+      return reply({
+        challengeId, accountId, publicKey: wallet.public_key, nonceHex,
+        message, recipient: APP_RECIPIENT, expiresInSeconds: 300,
+      });
+    }
+
+    if (body.action === "recovery_code_reset_verify") {
+      const { challengeId, signedMessage } = body;
+      if (typeof challengeId !== "string" || !isRecord(signedMessage) ||
+          typeof signedMessage.accountId !== "string" ||
+          typeof signedMessage.publicKey !== "string" ||
+          typeof signedMessage.signature !== "string") {
+        return reply({ error: "A valid NEP-413 signature from your active registered wallet is required." }, 400);
+      }
+      const { data: challengeRows, error: challengeError } = await admin.rpc(
+        "get_near_wallet_recovery_reset_challenge_v1",
+        { p_owner_id: user.id, p_id: challengeId },
+      );
+      const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
+      if (challengeError || !challenge ||
+          signedMessage.accountId !== challenge.account_id ||
+          signedMessage.publicKey !== challenge.public_key) {
+        return reply({ error: "Recovery-code reset challenge expired, mismatched, or already used." }, 409);
+      }
+
+      const lifecycleResult = await admin.rpc("get_near_wallet_recovery_lifecycle_v1", {
+        p_owner_id: user.id,
+      });
+      if (lifecycleResult.error) throw new Error("Could not re-check active wallet ownership");
+      const state = Array.isArray(lifecycleResult.data) ? lifecycleResult.data[0] : null;
+      if (state?.active_wallet_account_id !== challenge.account_id ||
+          state?.code_established !== true || state?.code_consumed === true ||
+          state?.request_status === "pending") {
+        return reply({ error: "The active wallet or recovery status changed. Request a new reset challenge." }, 409);
+      }
+      const { data: walletRows, error: walletError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: challenge.account_id,
+      });
+      const wallet = Array.isArray(walletRows) ? walletRows[0] : null;
+      if (walletError || wallet?.public_key !== challenge.public_key) {
+        return reply({ error: "The signing wallet is no longer the active registered MANDATE wallet." }, 403);
+      }
+      const accessKeys = await rpcViewAccessKeys(challenge.account_id);
+      if (!findActiveFullAccessKey(accessKeys, challenge.public_key)) {
+        return reply({ error: "The signing key is no longer an active FullAccess key." }, 403);
+      }
+      const valid = await verifyNep413(
+        challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+        challenge.public_key, signedMessage.signature,
+      );
+      if (!valid) return reply({ error: "Recovery-code reset wallet signature is invalid." }, 403);
+
+      const recoveryCode = `MND-${hex(crypto.getRandomValues(new Uint8Array(32))).toUpperCase()}`;
+      const codeHash = hex(await sha256(encoder.encode(recoveryCode)));
+      const { data: completed, error: completeError } = await admin.rpc(
+        "complete_near_wallet_recovery_reset_v1",
+        { p_owner_id: user.id, p_id: challenge.id, p_code_hash_hex: codeHash },
+      );
+      if (completeError || completed !== true) {
+        return reply({ error: completeError?.message || "Recovery code could not be reset. No changes were made." }, 409);
+      }
+      return reply({
+        reset: true, recoveryCode,
+        message: "Recovery code reset successfully. Save this new code now; the previous code is no longer valid. Your registered wallet was not changed.",
+      });
+    }
+
     if (body.action === "recovery_setup_status") {
       const { data, error } = await admin.rpc("get_near_wallet_recovery_status_v1", {
         p_owner_id: user.id,
