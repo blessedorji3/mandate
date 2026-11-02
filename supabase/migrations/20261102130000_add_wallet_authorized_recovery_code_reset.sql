@@ -25,7 +25,7 @@ create or replace function public.create_near_wallet_recovery_reset_challenge_v1
   p_nonce_hex text, p_message text
 ) returns uuid
 language plpgsql security definer
-set search_path = pg_catalog, public, mandate_private
+set search_path = pg_catalog, mandate_private
 as $$
 declare v_recent_count integer;
 begin
@@ -87,7 +87,7 @@ create or replace function public.get_near_wallet_recovery_reset_challenge_v1(
   id uuid, account_id text, public_key text, nonce_hex text, message text, expires_at timestamptz
 )
 language sql security definer
-set search_path = pg_catalog, public, mandate_private
+set search_path = pg_catalog, mandate_private
 as $$
   select c.id, c.account_id, c.public_key, c.nonce_hex, c.message, c.expires_at
   from mandate_private.near_wallet_recovery_reset_challenges c
@@ -100,7 +100,7 @@ create or replace function public.complete_near_wallet_recovery_reset_v1(
   p_owner_id uuid, p_id uuid, p_code_hash_hex text
 ) returns boolean
 language plpgsql security definer
-set search_path = pg_catalog, public, mandate_private
+set search_path = pg_catalog, mandate_private
 as $$
 declare c mandate_private.near_wallet_recovery_reset_challenges%rowtype;
 begin
