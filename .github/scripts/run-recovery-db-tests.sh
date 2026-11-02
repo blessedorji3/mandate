@@ -23,5 +23,6 @@ trap cleanup EXIT
 # The trap removes it even when startup or tests fail.
 cp "$fixture" "$temporary_migration"
 supabase start
+bash .github/scripts/run-live-auth-integration-test.sh
 supabase test db
 bash .github/scripts/run-recovery-concurrency-test.sh
