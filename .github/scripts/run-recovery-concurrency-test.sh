@@ -21,6 +21,7 @@ cleanup() {
 delete from mandate_private.near_wallet_recovery_events where owner_id='$owner';
 delete from mandate_private.near_wallet_recovery_action_challenges where owner_id='$owner';
 delete from mandate_private.near_wallet_recovery_requests where owner_id='$owner';
+delete from mandate_private.near_wallet_recovery_code_attempts where owner_id='$owner';
 delete from mandate_private.near_wallet_recovery_credentials where owner_id='$owner';
 delete from mandate_private.near_owner_wallets where owner_id='$owner';
 delete from auth.users where id='$owner';
