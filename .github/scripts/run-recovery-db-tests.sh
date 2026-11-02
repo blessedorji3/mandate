@@ -24,3 +24,4 @@ trap cleanup EXIT
 cp "$fixture" "$temporary_migration"
 supabase start
 supabase test db
+bash .github/scripts/run-recovery-concurrency-test.sh
