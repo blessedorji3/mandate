@@ -80,7 +80,7 @@ values
   1,true,
   '1000000000000000000000',
   array['confirmwithmandate.testnet']::text[],
-  array['transfer']::text[],true,false);
+  array['transfer']::text[],false);
 
 insert into mandate_private.near_transfer_receipts
  (id,owner_id,token_hash,signer_account_id,policy_id,policy_version,proposal_id,
