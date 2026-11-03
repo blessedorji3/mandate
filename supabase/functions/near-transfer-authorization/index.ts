@@ -88,7 +88,8 @@ function nep413Bytes(message: string, nonce: Uint8Array, recipient: string) {
   return concat(prefix, borshString(message), nonce, borshString(recipient), new Uint8Array([0]));
 }
 async function sha256(bytes: Uint8Array) {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const data = bytes.slice().buffer as ArrayBuffer;
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", data));
 }
 async function authenticate(req: Request) {
   const authorization = req.headers.get("authorization") ?? "";
@@ -101,7 +102,7 @@ async function authenticate(req: Request) {
   if (error || !data.user) return null;
   return data.user;
 }
-async function getPolicy(admin: ReturnType<typeof createClient>, ownerId: string) {
+async function getPolicy(admin: any, ownerId: string) {
   const { data, error } = await admin.from("security_policies")
     .select("id, version, active, max_amount_atomic, allowed_recipients, allowed_action_types, require_approval_for_token_approvals, require_approval_for_all_actions")
     .eq("owner_id", ownerId).eq("active", true)
@@ -113,7 +114,7 @@ async function getPolicy(admin: ReturnType<typeof createClient>, ownerId: string
 async function assessRiskForAccount(admin: ReturnType<typeof createClient>, accountId: string) {
   return assessCounterpartyRisk(accountId, {
     findBlocklistRecord: async (target) => {
-      const lookup = await admin.rpc("lookup_counterparty_blocklist", {
+      const lookup = await (admin as any).rpc("lookup_counterparty_blocklist", {
         p_network: "testnet",
         p_account_id: target,
       });
@@ -1057,7 +1058,7 @@ export async function handleRequest(req: Request) {
       }
       const tokenHash = hex(await sha256(encoder.encode(receipt)));
       const digest = await actionDigest(signerAccountId);
-      const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v3", {
+      const { data: consumed, error: consumeError } = await (admin as any).rpc("consume_near_transfer_authorization_v3", {
         p_owner_id: user.id, p_token_hash: tokenHash,
         p_signer_account_id: signerAccountId, p_network: TEST_TRANSFER.network,
         p_receiver_id: TEST_TRANSFER.receiverId, p_asset: TEST_TRANSFER.asset,
