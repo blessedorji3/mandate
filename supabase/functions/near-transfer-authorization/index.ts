@@ -841,11 +841,14 @@ export async function handleRequest(req: Request) {
 
     if (body.action === "challenge") {
       const signer = body.signerAccountId;
+      const inspectedProposalId = body.proposalId;
       if (typeof signer !== "string" || !/^[a-z0-9._-]+\.testnet$/.test(signer)) {
         return reply({ error: "Connect a valid NEAR Testnet account." }, 400);
       }
-      // Fail closed at the HTTP boundary as well as in the database RPCs.
-      // The database remains the final authority and independently blocks races.
+      if (typeof inspectedProposalId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(inspectedProposalId)) {
+        return reply({ error: "A valid inspected proposal reference is required. Direct wallet challenges are disabled." }, 400);
+      }
+
       const { data: recoveryRows, error: recoveryError } = await admin.rpc(
         "get_near_wallet_recovery_lifecycle_v1", { p_owner_id: user.id },
       );
@@ -864,72 +867,74 @@ export async function handleRequest(req: Request) {
       const policy = await getPolicy(admin, user.id);
       if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
       const evaluated = evaluateTestTransferPolicy(policy);
-      let decision: Record<string, unknown>;
-      if (body.proposalId !== undefined && typeof body.proposalId !== "string") {
-        return reply({ error: "Invalid inspected proposal reference." }, 400);
+      const { data: inspected, error: inspectedError } = await admin
+        .from("authorization_decisions")
+        .select("proposal_id, policy_id, policy_version, outcome, proposal")
+        .eq("owner_id", user.id).eq("proposal_id", inspectedProposalId)
+        .maybeSingle();
+      if (inspectedError || !inspected ||
+          inspected.policy_id !== policy.id ||
+          inspected.policy_version !== policy.version ||
+          !["ALLOW", "REQUIRE_APPROVAL"].includes(inspected.outcome) ||
+          !isRecord(inspected.proposal) ||
+          inspected.proposal.id !== inspected.proposal_id ||
+          inspected.proposal.actionType !== "transfer" ||
+          inspected.proposal.asset !== "NEAR" ||
+          inspected.proposal.amountAtomic !== TEST_TRANSFER.amountAtomic ||
+          inspected.proposal.target !== TEST_TRANSFER.receiverId ||
+          inspected.proposal.network !== TEST_TRANSFER.network ||
+          !isRecord(inspected.proposal.counterpartyRisk) ||
+          inspected.proposal.counterpartyRisk.outcome !== "ALLOW") {
+        return reply({ error: "This proposal is not eligible for wallet execution. It must have a fresh inspection and an ALLOW counterparty-risk result." }, 409);
       }
-      if (typeof body.proposalId === "string") {
-        if (!/^[a-zA-Z0-9_-]{1,128}$/.test(body.proposalId)) {
-          return reply({ error: "Invalid inspected proposal reference." }, 400);
-        }
-        const { data: inspected, error: inspectedError } = await admin
-          .from("authorization_decisions")
-          .select("proposal_id, policy_id, policy_version, outcome, proposal")
-          .eq("owner_id", user.id).eq("proposal_id", body.proposalId)
-          .maybeSingle();
-        if (inspectedError || !inspected ||
-            inspected.policy_id !== policy.id ||
-            inspected.policy_version !== policy.version ||
-            !["ALLOW", "REQUIRE_APPROVAL"].includes(inspected.outcome) ||
-            !isRecord(inspected.proposal) ||
-            inspected.proposal.id !== inspected.proposal_id ||
-            inspected.proposal.actionType !== "transfer" ||
-            inspected.proposal.asset !== "NEAR" ||
-            inspected.proposal.amountAtomic !== TEST_TRANSFER.amountAtomic ||
-            inspected.proposal.target !== TEST_TRANSFER.receiverId ||
-            inspected.proposal.network !== TEST_TRANSFER.network) {
-          return reply({ error: "This proposal is not eligible for the fixed MANDATE Testnet transfer flow. Inspect it again or use the exact supported test transfer." }, 409);
-        }
-        if (inspected.outcome !== evaluated.outcome) {
-          return reply({ error: "The current policy decision differs from the inspected proposal. Inspect again." }, 409);
-        }
-        decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: inspected.proposal_id };
-      } else {
-        decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: proposalId() };
-        const proposal = {
-          id: decision.proposalId, agentId: "mandate-wallet-panel",
-          actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
-          amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
-          network: TEST_TRANSFER.network,
-        };
-        const { error: decisionError } = await admin.from("authorization_decisions").insert({
-          owner_id: user.id, policy_id: policy.id, policy_version: policy.version,
-          proposal_id: decision.proposalId, agent_id: "mandate-wallet-panel",
-          action_type: TEST_TRANSFER.actionType, outcome: decision.outcome,
-          reason: decision.reason, proposal,
-        });
-        if (decisionError) throw new Error("Could not record the policy decision");
+      if (inspected.outcome !== evaluated.outcome) {
+        return reply({ error: "The current owner policy decision differs from the inspected proposal. Inspect again." }, 409);
       }
-      if (decision.outcome === "BLOCK") {
-        return reply({ error: String(decision.message), decision }, 403);
+      if (evaluated.outcome === "BLOCK") {
+        return reply({ error: String(evaluated.message), decision: evaluated }, 403);
       }
+
+      // Re-check all external and database evidence at the signer boundary.
+      // A stale ALLOW receipt cannot be used after the counterparty becomes risky.
+      const riskAssessment = await assessRiskForAccount(admin, TEST_TRANSFER.receiverId);
+      if (riskAssessment.decision.outcome !== "ALLOW") {
+        return reply({
+          error: riskAssessment.decision.outcome === "BLOCK"
+            ? "MANDATE blocked this counterparty. No wallet challenge was created."
+            : "Counterparty evidence is incomplete or concerning. Wallet execution is paused until the risk-review flow is available.",
+          risk: riskAssessment.decision,
+        }, riskAssessment.decision.outcome === "BLOCK" ? 403 : 409);
+      }
+      const updatedProposal = { ...inspected.proposal, counterpartyRisk: riskAssessment.decision };
+      const { error: refreshError } = await admin.from("authorization_decisions")
+        .update({ proposal: updatedProposal })
+        .eq("owner_id", user.id).eq("proposal_id", inspectedProposalId);
+      if (refreshError) return reply({ error: "Could not refresh the risk receipt. No action is authorized." }, 500);
+
+      const decision = {
+        ...evaluated,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposalId: inspected.proposal_id,
+      };
       const digest = await actionDigest(signer);
       const nonce = crypto.getRandomValues(new Uint8Array(32));
       const challengeId = crypto.randomUUID();
       const nonceHex = hex(nonce);
       const message = [
         "MANDATE NEAR TESTNET TRANSFER AUTHORIZATION",
-        "This signature proves control of the signing account. It does not move funds.",
-        `Account: ${signer}`,
-        `Network: ${TEST_TRANSFER.network}`,
-        `Action: ${TEST_TRANSFER.actionType}`,
-        `Asset: ${TEST_TRANSFER.asset}`,
-        `Amount (yoctoNEAR): ${TEST_TRANSFER.amountAtomic}`,
-        `Recipient: ${TEST_TRANSFER.receiverId}`,
-        `Policy: ${policy.id} version ${policy.version}`,
-        `Proposal: ${decision.proposalId}`,
-        `Challenge: ${challengeId}`,
-        `Nonce: ${nonceHex}`,
+        "This signature proves control of the signing account and approves the exact transaction below. It does not move funds by itself.",
+        "Counterparty risk: ALLOW",
+        "Account: " + signer,
+        "Network: " + TEST_TRANSFER.network,
+        "Action: " + TEST_TRANSFER.actionType,
+        "Asset: " + TEST_TRANSFER.asset,
+        "Amount (yoctoNEAR): " + TEST_TRANSFER.amountAtomic,
+        "Recipient: " + TEST_TRANSFER.receiverId,
+        "Policy: " + policy.id + " version " + policy.version,
+        "Proposal: " + decision.proposalId,
+        "Challenge: " + challengeId,
+        "Nonce: " + nonceHex,
       ].join("\n");
       const { error: insertError } = await admin.rpc("create_near_transfer_challenge_v2", {
         p_owner_id: user.id, p_id: challengeId, p_nonce_hex: nonceHex,
@@ -941,7 +946,7 @@ export async function handleRequest(req: Request) {
       return reply({
         challengeId, message, nonceHex, recipient: APP_RECIPIENT,
         intent: { ...TEST_TRANSFER, signerId: signer },
-        decision, expiresInSeconds: 180,
+        decision, risk: riskAssessment.decision, expiresInSeconds: 180,
       });
     }
 
