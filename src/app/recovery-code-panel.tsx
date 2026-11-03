@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
+import { inspectRecoveryWalletResponse, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
 
 type HistoricalWallet = { accountId: string; revoked: boolean };
 
@@ -49,6 +50,7 @@ export function RecoveryCodePanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("Checking independent recovery status…");
+  const [safeDiagnostic, setSafeDiagnostic] = useState<SafeWalletDiagnostic | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -191,12 +193,22 @@ export function RecoveryCodePanel() {
       const wallet = await connector.wallet();
       if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
       setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
+      const nonceBytes = fromHex(challenge.nonceHex);
       const walletSignedMessage = await wallet.signMessage({
-        message: challenge.message, recipient: challenge.recipient, nonce: fromHex(challenge.nonceHex),
+        message: challenge.message, recipient: challenge.recipient, nonce: nonceBytes,
         network: "testnet", signerId: activeWallet,
       });
-      const signedMessage = normalizeNearSignedMessage(walletSignedMessage);
-      const result = await recoveryRequest({ action: "recovery_code_reset_verify", challengeId: challenge.challengeId, signedMessage });
+      const diagnostic = await inspectRecoveryWalletResponse({
+        challengeMessage: challenge.message,
+        challengeRecipient: challenge.recipient,
+        nonce: nonceBytes,
+        expectedAccountId: challenge.accountId,
+        expectedPublicKey: challenge.publicKey,
+        walletResponse: walletSignedMessage,
+      });
+      setSafeDiagnostic(diagnostic);
+      setNotice("Diagnostic captured. No recovery-code reset was submitted; your existing recovery code remains unchanged.");
+      return;
       if (result.reset !== true || typeof result.recoveryCode !== "string") throw new Error("MANDATE did not confirm the recovery-code reset.");
       setRecoveryCode(result.recoveryCode);
       setCopied(false);
@@ -265,6 +277,13 @@ export function RecoveryCodePanel() {
           <code>{recoveryCode}</code>
           <button className="outline-button" onClick={copyRecoveryCode}>{copied ? "Copied ✓" : "Copy recovery code"}</button>
           <p>Store it somewhere private and secure, preferably offline. Do not share it with anyone or paste it into chats. MANDATE stores only a cryptographic hash.</p>
+        </div>
+      )}
+      {safeDiagnostic && (
+        <div className="near-transfer-box" role="status" aria-live="polite">
+          <strong>Safe Meteor signing diagnostic</strong>
+          <p>Diagnostic-only run: the signed response was not submitted to the reset endpoint.</p>
+          <pre>{JSON.stringify(safeDiagnostic, null, 2)}</pre>
         </div>
       )}
       {error && <p className="near-wallet-error" role="alert">{error}</p>}
