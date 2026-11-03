@@ -1,6 +1,6 @@
-import { evaluateCounterpartyRisk, type BlocklistEvidence, type CounterpartyRiskDecision, type RiskSignal } from "./counterparty-risk";
-import { collectNearTestnetEvidence, type NearEvidenceSignal } from "./near-counterparty-evidence";
-import { collectNearTestnetHistory, type HistoricalSignal } from "./near-counterparty-history";
+import { evaluateCounterpartyRisk, type BlocklistEvidence, type CounterpartyRiskDecision, type RiskSignal } from "./counterparty-risk.ts";
+import { collectNearTestnetEvidence, type NearEvidenceSignal } from "./near-counterparty-evidence.ts";
+import { collectNearTestnetHistory, type HistoricalSignal } from "./near-counterparty-history.ts";
 
 export type CounterpartyRiskCollection = {
   network: "testnet";
