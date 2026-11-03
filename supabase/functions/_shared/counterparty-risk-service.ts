@@ -1,5 +1,5 @@
-import { evaluateCounterpartyRisk, type BlocklistEvidence, type CounterpartyRiskDecision } from "./counterparty-risk";
-import { collectAndEvaluateNearTestnetCounterparty, type CounterpartyRiskCollection } from "./collect-counterparty-risk";
+import { evaluateCounterpartyRisk, type BlocklistEvidence, type CounterpartyRiskDecision } from "./counterparty-risk.ts";
+import { collectAndEvaluateNearTestnetCounterparty, type CounterpartyRiskCollection } from "./collect-counterparty-risk.ts";
 
 export type CounterpartyRiskDependencies = {
   findBlocklistRecord: (accountId: string) => Promise<{
