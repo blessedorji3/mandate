@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
-import { evaluateAction } from "../../../src/security/evaluate-action.ts";
-import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
+import { evaluateAction } from "../_shared/evaluate-action.ts";
+import { assessCounterpartyRisk } from "../_shared/counterparty-risk-service.ts";
 import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413 } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
