@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
+import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
 
 type ActionType = "transfer" | "token_approval" | "swap" | "contract_call";
 type Proposal = { id: string; agentId: string; actionType: ActionType; asset: string; amountAtomic: string; target: string; protocol?: string; approvalAmountAtomic?: string };
@@ -96,17 +97,70 @@ Deno.serve(async (req: Request) => {
   };
   if (!validPolicy(policyCandidate)) return json({ error: "The saved policy is invalid. No action is authorized." }, 500);
   const policy = policyCandidate;
-  const decision = evaluate(body.proposal, policy);
+  const policyDecision = evaluate(body.proposal, policy);
   const proposal = isRecord(body.proposal) ? body.proposal : {};
+  const target = nonEmpty(proposal.target) ? proposal.target : "";
+
+  // Risk checks are deliberately independent of owner policy. Any failed evidence
+  // dependency becomes WARN in the risk service and is mapped to REQUIRE_APPROVAL,
+  // because the existing database enum intentionally has no WARN value.
+  const riskAssessment = await assessCounterpartyRisk(target, {
+    findBlocklistRecord: async (accountId) => {
+      const blocklist = admin.schema("mandate_private").from("counterparty_blocklist");
+      const confirmed = await blocklist
+        .select("status, evidence_ref, reason, reviewed_at, reviewer_owner_id")
+        .eq("network", "testnet").eq("account_id", accountId).eq("status", "confirmed")
+        .order("reviewed_at", { ascending: false }).limit(1).maybeSingle();
+      if (confirmed.error) throw new Error("Blocklist lookup unavailable.");
+      if (confirmed.data) return confirmed.data;
+      const pending = await admin.schema("mandate_private").from("counterparty_blocklist")
+        .select("status, evidence_ref, reason, reviewed_at, reviewer_owner_id")
+        .eq("network", "testnet").eq("account_id", accountId).eq("status", "pending")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (pending.error) throw new Error("Blocklist lookup unavailable.");
+      return pending.data;
+    },
+    countPreviousInteractions: async (accountId) => {
+      const result = await admin.from("authorization_decisions")
+        .select("id", { count: "exact", head: true })
+        .filter("proposal->>target", "eq", accountId);
+      if (result.error || result.count === null) throw new Error("Interaction history unavailable.");
+      return result.count;
+    },
+  });
+
+  const riskOutcome = riskAssessment.decision.outcome;
+  const effectiveOutcome = policyDecision.outcome === "BLOCK" || riskOutcome === "BLOCK"
+    ? "BLOCK"
+    : policyDecision.outcome === "REQUIRE_APPROVAL" || riskOutcome === "WARN"
+      ? "REQUIRE_APPROVAL"
+      : "ALLOW";
+  const effectiveReason = riskOutcome === "ALLOW"
+    ? policyDecision.reason
+    : "COUNTERPARTY_RISK_" + riskOutcome + ": " + riskAssessment.decision.reasons.join("; ");
+  const decision = { ...policyDecision, outcome: effectiveOutcome, reason: effectiveReason,
+    message: effectiveOutcome === "BLOCK"
+      ? "The action is blocked by owner policy or counterparty risk."
+      : effectiveOutcome === "REQUIRE_APPROVAL"
+        ? "Owner confirmation is required before this action can proceed."
+        : policyDecision.message };
+
   const { error: receiptError } = await admin.from("authorization_decisions").insert({
     owner_id: keyRecord.owner_id, policy_id: policy.id, policy_version: policy.version,
     proposal_id: decision.proposalId,
     agent_id: nonEmpty(proposal.agentId) ? proposal.agentId.slice(0, 128) : "unknown",
     action_type: nonEmpty(proposal.actionType) ? proposal.actionType.slice(0, 64) : "unknown",
-    outcome: decision.outcome, reason: decision.reason, proposal
+    outcome: decision.outcome, reason: decision.reason,
+    proposal: { ...proposal, counterpartyRisk: riskAssessment.decision }
   });
   if (receiptError) return json({ error: "Decision receipt could not be saved. No action is authorized." }, 500);
 
-  await admin.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRecord.id);
-  return json({ decision, policy: { id: policy.id, version: policy.version } });
+  const { error: lastUsedError } = await admin.from("api_keys").update({ last_used_at: new Date().toISOString() }).eq("id", keyRecord.id);
+  if (lastUsedError) return json({ error: "API key usage receipt could not be updated. No action is authorized." }, 500);
+  return json({
+    decision,
+    risk: riskAssessment.decision,
+    riskCollection: riskAssessment.collection,
+    policy: { id: policy.id, version: policy.version }
+  });
 });
