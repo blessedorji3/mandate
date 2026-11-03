@@ -104,7 +104,11 @@ async function postJson<T>(
   try {
     const response = await fetchImpl(url, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        ...(apiKey ? { authorization: "Bearer " + apiKey } : {}),
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
       redirect: "error",
@@ -154,9 +158,11 @@ export async function collectNearTestnetHistory(
   accountId: string,
   fetchImpl: typeof fetch = fetch,
   now: () => Date = () => new Date(),
+  apiKey?: string,
 ): Promise<NearTestnetHistoryEvidence> {
   if (
     typeof accountId !== "string" ||
+    accountId.length < 2 ||
     accountId.length > MAX_ACCOUNT_ID_LENGTH ||
     !ACCOUNT_ID.test(accountId)
   ) {
