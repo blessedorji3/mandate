@@ -4,7 +4,7 @@ import type {
   DecisionReason,
   SecurityPolicy,
   ActionType
-} from "./types";
+} from "./types.ts";
 
 const INTEGER_STRING = /^(0|[1-9][0-9]*)$/;
 const ACTION_TYPES = new Set<ActionType>(["transfer", "token_approval", "swap", "contract_call"]);
