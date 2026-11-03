@@ -136,3 +136,29 @@ Deno.test("recovery reset: callback URL option is explicitly None; a Some payloa
     { name: "Ed25519" }, someKey, signature.slice().buffer as ArrayBuffer, someDigest.slice().buffer as ArrayBuffer,
   ), false, "signature over callbackUrl=None must not verify against callbackUrl=Some");
 });
+
+Deno.test("recovery reset: explicit trusted callback URL is part of the NEP-413 signature", async () => {
+  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
+  const rawPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+  const publicKey = `ed25519:${recoveryTestUtils.base58Encode(rawPublicKey)}`;
+  const nonce = new Uint8Array(32).fill(9);
+  const challengeMessage = message.replace("__PUBLIC_KEY__", publicKey);
+  const callbackUrl = "https://mandate-snowy.vercel.app";
+  const payload = concat(
+    new Uint8Array([0x9d, 0x01, 0x00, 0x80]),
+    borshString(challengeMessage),
+    nonce,
+    borshString(recipient),
+    new Uint8Array([1]),
+    borshString(callbackUrl),
+  );
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", payload.slice().buffer as ArrayBuffer));
+  const signature = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, pair.privateKey, digest.slice().buffer as ArrayBuffer));
+  const signatureBase64 = base64(signature);
+
+  assertEquals(await verifyNep413(challengeMessage, nonce, recipient, publicKey, signatureBase64, callbackUrl), true);
+  assertEquals(await verifyNep413(challengeMessage, nonce, recipient, publicKey, signatureBase64, "https://mandate-snowy.vercel.app.evil.example"), false);
+  assertEquals(await verifyNep413(challengeMessage, nonce, "wrong-recipient.example", publicKey, signatureBase64, callbackUrl), false);
+  const alteredNonce = nonce.slice(); alteredNonce[0] ^= 1;
+  assertEquals(await verifyNep413(challengeMessage, alteredNonce, recipient, publicKey, signatureBase64, callbackUrl), false);
+});
