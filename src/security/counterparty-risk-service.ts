@@ -16,6 +16,7 @@ export type CounterpartyRiskDependencies = {
       previousInteractions: number | null;
       blocklist: BlocklistEvidence | null;
       blocklistLookupStatus: "verified" | "unavailable";
+      now?: () => Date;
     },
   ) => Promise<CounterpartyRiskCollection>;
   now?: () => Date;
@@ -87,7 +88,7 @@ export async function assessCounterpartyRisk(
     signals: [],
     previousInteractions: interactionCount,
     blocklist,
-  });
+  }, now);
 
   return {
     decision,
