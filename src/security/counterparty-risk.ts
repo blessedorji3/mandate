@@ -89,6 +89,8 @@ export function evaluateCounterpartyRisk(input: unknown): CounterpartyRiskDecisi
 
   if (!record(input) ||
       typeof input.accountId !== "string" ||
+      input.accountId.length < 2 ||
+      input.accountId.length > 64 ||
       !ACCOUNT_ID.test(input.accountId) ||
       !validDate(input.evaluatedAt) ||
       !Array.isArray(input.signals) ||
