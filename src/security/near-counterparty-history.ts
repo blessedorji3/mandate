@@ -98,6 +98,7 @@ async function postJson<T>(
   url: string,
   body: Record<string, unknown>,
   fetchImpl: typeof fetch,
+  apiKey?: string,
 ): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -177,12 +178,12 @@ export async function collectNearTestnetHistory(
         account_id: accountId,
         desc: false,
         limit: HISTORY_PAGE_SIZE,
-      }, fetchImpl),
+      }, fetchImpl, apiKey),
       postJson<AccountHistoryResponse>(HISTORY_API + "/v0/account", {
         account_id: accountId,
         desc: true,
         limit: HISTORY_PAGE_SIZE,
-      }, fetchImpl),
+      }, fetchImpl, apiKey),
     ]);
 
     const oldestRows = isRecord(oldestPayload) && Array.isArray(oldestPayload.account_txs)
@@ -224,7 +225,7 @@ export async function collectNearTestnetHistory(
       try {
         const txPayload = await postJson<TransactionResponse>(HISTORY_API + "/v0/transactions", {
           tx_hashes: [oldest.transaction_hash],
-        }, fetchImpl);
+        }, fetchImpl, apiKey);
         const tx = isRecord(txPayload) && Array.isArray(txPayload.transactions)
           ? txPayload.transactions[0] : null;
         const transaction = isRecord(tx) && isRecord(tx.transaction) ? tx.transaction : null;
