@@ -61,11 +61,17 @@ function borshString(value: string) {
   return concat(u32(bytes.length), bytes);
 }
 
-function nep413Bytes(message: string, nonce: Uint8Array, recipient: string) {
+function nep413Bytes(message: string, nonce: Uint8Array, recipient: string, callbackUrl?: string) {
   if (nonce.length !== 32) throw new Error("NEP-413 nonce must be 32 bytes");
+  if (callbackUrl !== undefined && (!/^https:\/\//.test(callbackUrl) || callbackUrl.length > 2048)) {
+    throw new Error("Invalid NEP-413 callback URL");
+  }
   const prefix = new Uint8Array(4);
   new DataView(prefix.buffer).setUint32(0, 0x80000000 + 413, true);
-  return concat(prefix, borshString(message), nonce, borshString(recipient), new Uint8Array([0]));
+  const callback = callbackUrl === undefined
+    ? new Uint8Array([0])
+    : concat(new Uint8Array([1]), borshString(callbackUrl));
+  return concat(prefix, borshString(message), nonce, borshString(recipient), callback);
 }
 
 async function sha256(bytes: Uint8Array) {
@@ -78,6 +84,7 @@ export async function verifyNep413(
   recipient: string,
   publicKey: string,
   signature: string,
+  callbackUrl?: string,
 ): Promise<boolean> {
   try {
     const [keyType, encodedKey, extra] = publicKey.split(":");
@@ -85,7 +92,7 @@ export async function verifyNep413(
     const key = base58Decode(encodedKey);
     const sig = base64Decode(signature);
     if (key.length !== 32 || sig.length !== 64 || nonce.length !== 32) return false;
-    const digest = await sha256(nep413Bytes(message, nonce, recipient));
+    const digest = await sha256(nep413Bytes(message, nonce, recipient, callbackUrl));
     const cryptoKey = await crypto.subtle.importKey("raw", asArrayBuffer(key), { name: "Ed25519" }, false, ["verify"]);
     return await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, asArrayBuffer(sig), asArrayBuffer(digest));
   } catch {
