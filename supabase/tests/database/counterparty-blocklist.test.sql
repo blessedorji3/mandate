@@ -29,17 +29,17 @@ select ok(
 );
 
 insert into mandate_private.counterparty_blocklist
- (id,network,account_id,status,reason,evidence_ref,source_type,reporter_owner_id)
+ (id,network,account_id,status,reason,evidence_ref,source_type,reporter_owner_id,reviewer_owner_id,reviewed_at)
 values
  ('12000000-0000-4000-8000-000000000001','testnet','pending-bad.testnet','pending',
   'Suspicious destination report','https://evidence.example/pending/1','explorer',
-  '11000000-0000-4000-8000-000000000001'),
+  '11000000-0000-4000-8000-000000000001',null,null),
  ('12000000-0000-4000-8000-000000000002','testnet','confirmed-bad.testnet','confirmed',
   'Confirmed malicious drain','https://evidence.example/confirmed/1','chain_tx',
   '11000000-0000-4000-8000-000000000001','11000000-0000-4000-8000-000000000002',now()),
  ('12000000-0000-4000-8000-000000000003','testnet','rejected-bad.testnet','rejected',
   'Report reviewed and rejected','https://evidence.example/rejected/1','other',
-  '11000000-0000-4000-8000-000000000001');
+  '11000000-0000-4000-8000-000000000001',null,null);
 
 select is(
   (select status from public.lookup_counterparty_blocklist('testnet','confirmed-bad.testnet')),
