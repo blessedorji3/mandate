@@ -33,6 +33,8 @@ jobs:
           deno-version: v2.x
       - name: Run recovery signature and challenge security tests
         run: deno test supabase/functions/near-transfer-authorization/recovery-security.test.ts
+      - name: Run Meteor NEP-413 recovery reset diagnostic
+        run: deno test supabase/functions/near-transfer-authorization/recovery-meteor-diagnostic.test.ts
       - name: Run Edge Function HTTP authentication integration tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/near-transfer-authorization/http-integration.test.ts
       - name: Run adversarial recovery HTTP integration tests
