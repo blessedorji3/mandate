@@ -105,6 +105,28 @@ describe("collectNearTestnetHistory", () => {
     expect(result.signals.find((signal) => signal.name === "account_age")?.status).toBe("unavailable");
   });
 
+  it("rejects account IDs shorter than the NEAR minimum before making a request", async () => {
+    let called = false;
+    const fetchMock = async () => { called = true; return response({}); };
+    await expect(collectNearTestnetHistory("a", fetchMock as typeof fetch, now)).rejects.toThrow(TypeError);
+    expect(called).toBe(false);
+  });
+
+  it("supports an optional FastNear bearer key without logging or exposing it", async () => {
+    const authHeaders: string[] = [];
+    const fetchMock = async (url: RequestInfo | URL, init?: RequestInit) => {
+      authHeaders.push(new Headers(init?.headers).get("authorization") ?? "");
+      const body = JSON.parse(String(init?.body));
+      if (String(url).endsWith("/v0/account")) {
+        return response({ account_txs: [body.desc ? historyRow(newHash, "2026-11-02T10:00:00.000Z") : historyRow(oldHash, "2026-10-01T10:00:00.000Z")], txs_count: 2, resume_token: null });
+      }
+      return response({ transactions: [] });
+    };
+    await collectNearTestnetHistory(account, fetchMock as typeof fetch, now, "test-key-not-real");
+    expect(authHeaders.length).toBe(3);
+    expect(authHeaders.every((header) => header === "Bearer test-key-not-real")).toBe(true);
+  });
+
   it("rejects invalid account IDs before making a network request", async () => {
     let called = false;
     const fetchMock = async () => { called = true; return response({}); };
