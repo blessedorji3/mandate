@@ -56,6 +56,13 @@ describe("collectNearTestnetEvidence", () => {
     expect(result.accountAgeDays).toBeNull();
   });
 
+  it("rejects account IDs shorter than the NEAR minimum before making a request", async () => {
+    let called = false;
+    const fetchMock = async () => { called = true; return response({ result: {} }); };
+    await expect(collectNearTestnetEvidence("a", fetchMock as typeof fetch, fixedNow)).rejects.toThrow(TypeError);
+    expect(called).toBe(false);
+  });
+
   it("rejects invalid account identifiers before making a request", async () => {
     let called = false;
     const fetchMock = async () => { called = true; return response({ result: {} }); };
