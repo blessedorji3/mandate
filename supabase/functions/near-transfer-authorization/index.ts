@@ -781,6 +781,64 @@ export async function handleRequest(req: Request) {
       return reply({ registered: true, accountId: challenge.account_id, publicKey: signedMessage.publicKey });
     }
 
+    if (body.action === "inspect") {
+      if (!("proposal" in body)) return reply({ error: "A proposal is required for inspection." }, 400);
+      const policy = await getPolicy(admin, user.id);
+      if (!policy) return reply({ error: "Create and activate a security policy before inspecting actions." }, 409);
+      const policyCandidate = {
+        id: policy.id,
+        version: policy.version,
+        active: policy.active,
+        maxAmountAtomic: policy.max_amount_atomic,
+        allowedRecipients: policy.allowed_recipients,
+        allowedActionTypes: policy.allowed_action_types,
+        requireApprovalForTokenApprovals: policy.require_approval_for_token_approvals,
+        requireApprovalForAllActions: policy.require_approval_for_all_actions,
+      };
+      const policyDecision = evaluateAction(body.proposal, policyCandidate);
+      const proposal = isRecord(body.proposal) ? body.proposal : {};
+      const target = typeof proposal.target === "string" ? proposal.target : "invalid";
+      const riskAssessment = await assessRiskForAccount(admin, target);
+      const riskOutcome = riskAssessment.decision.outcome;
+      const outcome = policyDecision.outcome === "BLOCK" || riskOutcome === "BLOCK"
+        ? "BLOCK"
+        : policyDecision.outcome === "REQUIRE_APPROVAL" || riskOutcome === "WARN"
+          ? "REQUIRE_APPROVAL"
+          : "ALLOW";
+      const reason = riskOutcome === "ALLOW"
+        ? policyDecision.reason
+        : "COUNTERPARTY_RISK_" + riskOutcome + ": " + riskAssessment.decision.reasons.join("; ");
+      const decision = {
+        ...policyDecision,
+        outcome,
+        reason,
+        message: outcome === "BLOCK"
+          ? "The action is blocked by owner policy or counterparty risk."
+          : outcome === "REQUIRE_APPROVAL"
+            ? "Owner review or confirmation is required before this action can proceed."
+            : policyDecision.message,
+      };
+      const proposalWithRisk = { ...proposal, counterpartyRisk: riskAssessment.decision };
+      const { error: receiptError } = await admin.from("authorization_decisions").insert({
+        owner_id: user.id,
+        policy_id: policy.id,
+        policy_version: policy.version,
+        proposal_id: decision.proposalId,
+        agent_id: typeof proposal.agentId === "string" ? proposal.agentId.slice(0, 128) : "unknown",
+        action_type: typeof proposal.actionType === "string" ? proposal.actionType.slice(0, 64) : "transfer",
+        outcome: decision.outcome,
+        reason: decision.reason,
+        proposal: proposalWithRisk,
+      });
+      if (receiptError) return reply({ error: "Decision could not be recorded. No action was authorized." }, 500);
+      return reply({
+        decision,
+        risk: riskAssessment.decision,
+        riskCollection: riskAssessment.collection,
+        policy: { id: policy.id, version: policy.version },
+      });
+    }
+
     if (body.action === "challenge") {
       const signer = body.signerAccountId;
       if (typeof signer !== "string" || !/^[a-z0-9._-]+\.testnet$/.test(signer)) {
