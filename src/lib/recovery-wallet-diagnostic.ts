@@ -3,6 +3,7 @@ import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 export type SafeWalletDiagnostic = {
   challengeMessageForwardedUnchanged: boolean;
   challengeRecipientForwardedUnchanged: boolean;
+  challengeCallbackUrlForwardedUnchanged: boolean;
   serverExpectedRecipientMatches: boolean;
   nonceLengthBytes: number;
   nonceLengthValid: boolean;
@@ -33,10 +34,10 @@ function borshString(value: string): Uint8Array {
   const bytes = new TextEncoder().encode(value);
   return concat(u32(bytes.length), bytes);
 }
-function reconstructServerPayload(message: string, nonce: Uint8Array, recipient: string): Uint8Array {
+function reconstructServerPayload(message: string, nonce: Uint8Array, recipient: string, callbackUrl: string): Uint8Array {
   const prefix = new Uint8Array(4);
   new DataView(prefix.buffer).setUint32(0, 0x80000000 + 413, true);
-  return concat(prefix, borshString(message), nonce, borshString(recipient), new Uint8Array([0]));
+  return concat(prefix, borshString(message), nonce, borshString(recipient), new Uint8Array([1]), borshString(callbackUrl));
 }
 function base58Decode(value: string): Uint8Array {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -65,6 +66,8 @@ function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export async function inspectRecoveryWalletResponse(input: {
   challengeMessage: string;
   challengeRecipient: string;
+  challengeCallbackUrl: string;
+  walletRequestCallbackUrl: string;
   walletRequestMessage: string;
   walletRequestRecipient: string;
   nonce: Uint8Array;
@@ -102,7 +105,7 @@ export async function inspectRecoveryWalletResponse(input: {
   let localEd25519Verification: SafeWalletDiagnostic["localEd25519Verification"] = "unavailable";
   try {
     if (!normalized || input.nonce.length !== 32) throw new Error("Missing valid signed message or nonce");
-    const payload = reconstructServerPayload(input.challengeMessage, input.nonce, input.challengeRecipient);
+    const payload = reconstructServerPayload(input.challengeMessage, input.nonce, input.challengeRecipient, input.challengeCallbackUrl);
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", asArrayBuffer(payload)));
     serverPayloadReconstruction = "SHA-256 digest generated";
 
@@ -127,6 +130,7 @@ export async function inspectRecoveryWalletResponse(input: {
   return {
     challengeMessageForwardedUnchanged: input.walletRequestMessage === input.challengeMessage,
     challengeRecipientForwardedUnchanged: input.walletRequestRecipient === input.challengeRecipient,
+    challengeCallbackUrlForwardedUnchanged: input.walletRequestCallbackUrl === input.challengeCallbackUrl,
     serverExpectedRecipientMatches: input.challengeRecipient === SERVER_EXPECTED_RECIPIENT,
     nonceLengthBytes: input.nonce.length,
     nonceLengthValid: input.nonce.length === 32,
