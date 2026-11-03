@@ -373,7 +373,7 @@ export async function handleRequest(req: Request) {
       if (error) return reply({ error: error.message }, 409);
       return reply({
         challengeId, requestId, action, accountId, publicKey,
-        nonceHex, message, recipient: APP_RECIPIENT, callbackUrl, expiresInSeconds: 300,
+        nonceHex, message, recipient: APP_RECIPIENT, expiresInSeconds: 300,
       });
     }
 
@@ -401,7 +401,7 @@ export async function handleRequest(req: Request) {
       if (!fullAccess) return reply({ error: "The signing key is no longer an active FullAccess key." }, 403);
       const valid = await verifyNep413(
         challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
-        challenge.public_key, signedMessage.signature, challenge.callback_url,
+        challenge.public_key, signedMessage.signature,
       );
       if (!valid) return reply({ error: "The recovery wallet signature is invalid." }, 403);
 
@@ -498,7 +498,7 @@ export async function handleRequest(req: Request) {
       if (error) return reply({ error: error.message || "Could not create recovery-code reset challenge." }, 409);
       return reply({
         challengeId, accountId, publicKey: wallet.public_key, nonceHex,
-        message, recipient: APP_RECIPIENT, expiresInSeconds: 300,
+        message, recipient: APP_RECIPIENT, callbackUrl, expiresInSeconds: 300,
       });
     }
 
@@ -544,7 +544,7 @@ export async function handleRequest(req: Request) {
       }
       const valid = await verifyNep413(
         challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
-        challenge.public_key, signedMessage.signature,
+        challenge.public_key, signedMessage.signature, challenge.callback_url,
       );
       if (!valid) return reply({ error: "Recovery-code reset wallet signature is invalid." }, 403);
 
