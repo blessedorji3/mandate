@@ -72,12 +72,12 @@ select throws_ok(
 
 
 insert into public.security_policies
- (id,owner_id,name,version,active,max_amount_atomic,allowed_recipients,allowed_action_types,
-  require_approval_for_token_approvals,require_approval_for_all_actions)
+ (id,owner_id,version,active,max_amount_atomic,allowed_recipients,allowed_action_types,
+  require_approval_for_all_actions)
 values
  ('13000000-0000-4000-8000-000000000001',
   '11000000-0000-4000-8000-000000000001',
-  'counterparty receipt test',1,true,
+  1,true,
   '1000000000000000000000',
   array['confirmwithmandate.testnet']::text[],
   array['transfer']::text[],true,false);
