@@ -89,7 +89,10 @@ export async function inspectRecoveryWalletResponse(input: {
   let serverPayloadReconstruction: SafeWalletDiagnostic["serverPayloadReconstruction"] = "failed";
   try {
     const payload = reconstructServerPayload(input.challengeMessage, input.nonce, input.challengeRecipient);
-    await crypto.subtle.digest("SHA-256", payload);
+    // Web Crypto's BufferSource typing requires an ArrayBuffer, not ArrayBufferLike.
+    const digestInput = new ArrayBuffer(payload.byteLength);
+    new Uint8Array(digestInput).set(payload);
+    await crypto.subtle.digest("SHA-256", digestInput);
     serverPayloadReconstruction = "SHA-256 digest generated";
   } catch { /* no sensitive data emitted */ }
   return {
