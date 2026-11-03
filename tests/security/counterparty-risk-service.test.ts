@@ -24,7 +24,7 @@ function deps(overrides: Record<string, unknown> = {}) {
         signals: [],
         previousInteractions: options.previousInteractions,
         blocklist: options.blocklist,
-      }),
+      }, () => new Date(at)),
     }),
     now: () => new Date(at),
     ...overrides,
