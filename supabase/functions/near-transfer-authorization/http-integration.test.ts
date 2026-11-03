@@ -51,12 +51,12 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
     // the Edge Function module reads its environment variables.
     const { handleRequest } = await import("./index.ts");
     const origin = "https://mandate-snowy.vercel.app";
-    const makeRequest = (authorization?: string, action = "wallet_status") => new Request(
+    const makeRequest = (authorization?: string, action = "wallet_status", proposalId?: string, includeOrigin = true) => new Request(
       "https://mandate-http-test.invalid/functions/v1/near-transfer-authorization",
       {
         method: "POST",
         headers: {
-          origin,
+          ...(includeOrigin ? { origin } : {}),
           "content-type": "application/json",
           ...(authorization ? { authorization } : {}),
         },
@@ -66,6 +66,7 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
           signerAccountId: "owner-wallet.testnet",
           // This must never override the authenticated user identity.
           ownerId: "10000000-0000-4000-8000-000000000099",
+          ...(proposalId ? { proposalId } : {}),
         }),
       },
     );
@@ -80,7 +81,13 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
     assertEquals(valid.status, 200, "valid authenticated request should reach the RPC");
     assertEquals(await valid.json(), { registered: false, wallet: null });
 
-    const frozen = await handleRequest(makeRequest("Bearer valid-test-user-token", "challenge"));
+    const serverToServer = await handleRequest(makeRequest("Bearer valid-test-user-token", "wallet_status", undefined, false));
+    assertEquals(serverToServer.status, 200, "authenticated server-to-server calls without Origin should be allowed");
+
+    const directChallenge = await handleRequest(makeRequest("Bearer valid-test-user-token", "challenge"));
+    assertEquals(directChallenge.status, 400, "wallet challenge without an inspected proposal must be rejected");
+
+    const frozen = await handleRequest(makeRequest("Bearer valid-test-user-token", "challenge", "inspected-proposal-123"));
     assertEquals(frozen.status, 409, "a pending recovery must freeze transfer authorization at the HTTP boundary");
     const frozenBody = await frozen.json();
     assertEquals(
