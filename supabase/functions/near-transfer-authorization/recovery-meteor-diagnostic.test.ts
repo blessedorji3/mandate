@@ -104,3 +104,35 @@ Deno.test("recovery reset: Meteor signMessage inputs and server NEP-413 reconstr
   assertEquals(await verifyNep413(challengeMessage, challengeNonceBytes, "wrong-recipient.example", publicKey, normalized.signature), false);
   assertEquals(await verifyNep413(challengeMessage, changedNonce, recipient, publicKey, normalized.signature), false);
 });
+
+
+Deno.test("recovery reset: callback URL option is explicitly None; a Some payload is not interchangeable", async () => {
+  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
+  const rawPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+  const publicKey = `ed25519:${recoveryTestUtils.base58Encode(rawPublicKey)}`;
+  const nonceBytes = new Uint8Array(32).fill(7);
+  const challengeMessage = message.replace("__PUBLIC_KEY__", publicKey);
+
+  // NEP-413 Borsh Option<string>: None = 0; Some(url) = 1 + Borsh string.
+  const nonePayload = meteorNep413Payload(challengeMessage, nonceBytes, recipient);
+  const someCallbackPayload = concat(
+    nonePayload.slice(0, nonePayload.length - 1),
+    new Uint8Array([1]),
+    borshString("https://mandate-snowy.vercel.app/callback"),
+  );
+  assertEquals(nonePayload.at(-1), 0, "Meteor action without callbackUrl must serialize Option::None");
+  assertEquals(someCallbackPayload.at(-1 - new TextEncoder().encode("https://mandate-snowy.vercel.app/callback").length - 4), 1);
+
+  const noneDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", nonePayload.slice().buffer as ArrayBuffer));
+  const signature = new Uint8Array(await crypto.subtle.sign(
+    { name: "Ed25519" }, pair.privateKey, noneDigest.slice().buffer as ArrayBuffer,
+  ));
+  const signatureBase64 = base64(signature);
+
+  assertEquals(await verifyNep413(challengeMessage, nonceBytes, recipient, publicKey, signatureBase64), true);
+  const someDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", someCallbackPayload.slice().buffer as ArrayBuffer));
+  const someKey = await crypto.subtle.importKey("raw", rawPublicKey.slice().buffer as ArrayBuffer, { name: "Ed25519" }, false, ["verify"]);
+  assertEquals(await crypto.subtle.verify(
+    { name: "Ed25519" }, someKey, signature.slice().buffer as ArrayBuffer, someDigest.slice().buffer as ArrayBuffer,
+  ), false, "signature over callbackUrl=None must not verify against callbackUrl=Some");
+});
