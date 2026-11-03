@@ -982,6 +982,26 @@ export async function handleRequest(req: Request) {
         signed.publicKey, signed.signature,
       );
       if (!signatureValid) return reply({ error: "NEP-413 wallet signature verification failed." }, 403);
+      if (typeof challenge.proposal_id !== "string" || !challenge.message.includes("Counterparty risk: ALLOW")) {
+        return reply({ error: "The signed challenge does not contain a verified counterparty-risk approval." }, 409);
+      }
+      const { data: inspectedRows, error: inspectedRiskError } = await admin.from("authorization_decisions")
+        .select("proposal")
+        .eq("owner_id", user.id).eq("proposal_id", challenge.proposal_id).maybeSingle();
+      if (inspectedRiskError || !inspectedRows || !isRecord(inspectedRows.proposal) ||
+          !isRecord(inspectedRows.proposal.counterpartyRisk) ||
+          inspectedRows.proposal.counterpartyRisk.outcome !== "ALLOW") {
+        return reply({ error: "The inspected proposal no longer has a verified ALLOW risk receipt." }, 409);
+      }
+      const latestRisk = await assessRiskForAccount(admin, TEST_TRANSFER.receiverId);
+      if (latestRisk.decision.outcome !== "ALLOW") {
+        return reply({
+          error: latestRisk.decision.outcome === "BLOCK"
+            ? "MANDATE blocked this counterparty before authorization could be issued."
+            : "Counterparty evidence changed or became unavailable. Start a new inspection after review.",
+          risk: latestRisk.decision,
+        }, latestRisk.decision.outcome === "BLOCK" ? 403 : 409);
+      }
 
       const policy = await getPolicy(admin, user.id);
       if (!policy || policy.id !== challenge.policy_id || policy.version !== challenge.policy_version ||
@@ -996,7 +1016,7 @@ export async function handleRequest(req: Request) {
       });
       if (finalizeError || finalized !== true) return reply({ error: "Challenge could not be finalized. No authorization was issued." }, 409);
       return reply({
-        authorized: true, receipt: token, expiresInSeconds: 90,
+        authorized: true, receipt: token, proposalId: challenge.proposal_id, expiresInSeconds: 90,
         intent: {
           network: challenge.network, signerId: challenge.signer_account_id,
           receiverId: challenge.receiver_id, asset: challenge.asset,
@@ -1008,22 +1028,42 @@ export async function handleRequest(req: Request) {
     }
 
     if (body.action === "consume") {
-      const { receipt, signerAccountId } = body;
+      const { receipt, signerAccountId, proposalId: inspectedProposalId } = body;
       if (typeof receipt !== "string" || !/^[0-9a-f]{64}$/.test(receipt) ||
-          typeof signerAccountId !== "string") return reply({ error: "Invalid authorization receipt." }, 400);
+          typeof signerAccountId !== "string" ||
+          typeof inspectedProposalId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(inspectedProposalId)) {
+        return reply({ error: "A valid one-time authorization receipt, signer, and inspected proposal reference are required." }, 400);
+      }
       const policy = await getPolicy(admin, user.id);
       if (!policy || evaluateTestTransferPolicy(policy).outcome === "BLOCK") return reply({ error: "The active policy no longer permits this transfer." }, 403);
+      const { data: inspectedRows, error: inspectedRiskError } = await admin.from("authorization_decisions")
+        .select("proposal")
+        .eq("owner_id", user.id).eq("proposal_id", inspectedProposalId).maybeSingle();
+      if (inspectedRiskError || !inspectedRows || !isRecord(inspectedRows.proposal) ||
+          !isRecord(inspectedRows.proposal.counterpartyRisk) ||
+          inspectedRows.proposal.counterpartyRisk.outcome !== "ALLOW") {
+        return reply({ error: "The inspected proposal does not have a verified ALLOW risk receipt." }, 409);
+      }
+      const latestRisk = await assessRiskForAccount(admin, TEST_TRANSFER.receiverId);
+      if (latestRisk.decision.outcome !== "ALLOW") {
+        return reply({
+          error: latestRisk.decision.outcome === "BLOCK"
+            ? "MANDATE blocked this counterparty before the authorization could be consumed."
+            : "Counterparty evidence changed or became unavailable. The one-time authorization remains unconsumed.",
+          risk: latestRisk.decision,
+        }, latestRisk.decision.outcome === "BLOCK" ? 403 : 409);
+      }
       const tokenHash = hex(await sha256(encoder.encode(receipt)));
       const digest = await actionDigest(signerAccountId);
-      const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v2", {
+      const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v3", {
         p_owner_id: user.id, p_token_hash: tokenHash,
         p_signer_account_id: signerAccountId, p_network: TEST_TRANSFER.network,
         p_receiver_id: TEST_TRANSFER.receiverId, p_asset: TEST_TRANSFER.asset,
         p_amount_atomic: TEST_TRANSFER.amountAtomic, p_action_type: TEST_TRANSFER.actionType,
-        p_action_digest: digest,
+        p_action_digest: digest, p_proposal_id: inspectedProposalId,
       });
       if (consumeError || consumed !== true) return reply({ error: "Authorization is expired, mismatched, replayed, or invalid." }, 409);
-      return reply({ consumed: true, message: "One-time authorization consumed. The wallet may now request your explicit transaction approval." });
+      return reply({ consumed: true, proposalId: inspectedProposalId, message: "One-time authorization consumed after a fresh risk check. The wallet may now request your explicit transaction approval." });
     }
 
 
