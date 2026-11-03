@@ -1,4 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
+import { evaluateAction } from "../../../src/security/evaluate-action.ts";
+import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
 import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413 } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
@@ -106,6 +108,26 @@ async function getPolicy(admin: ReturnType<typeof createClient>, ownerId: string
     .order("updated_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw new Error("Could not load the active security policy");
   return data;
+}
+
+async function assessRiskForAccount(admin: ReturnType<typeof createClient>, accountId: string) {
+  return assessCounterpartyRisk(accountId, {
+    findBlocklistRecord: async (target) => {
+      const lookup = await admin.rpc("lookup_counterparty_blocklist", {
+        p_network: "testnet",
+        p_account_id: target,
+      });
+      if (lookup.error) throw new Error("Blocklist lookup unavailable.");
+      return Array.isArray(lookup.data) ? lookup.data[0] ?? null : null;
+    },
+    countPreviousInteractions: async (target) => {
+      const result = await admin.from("authorization_decisions")
+        .select("id", { count: "exact", head: true })
+        .filter("proposal->>target", "eq", target);
+      if (result.error || result.count === null) throw new Error("Interaction history unavailable.");
+      return result.count;
+    },
+  });
 }
 function evaluateTestTransferPolicy(policy: Record<string, unknown>) {
   if (policy.active !== true ||
