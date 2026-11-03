@@ -10,6 +10,7 @@ type Decision = {
   policyId: string;
   policyVersion: number;
   proposalId: string;
+  riskOutcome?: "ALLOW" | "WARN" | "BLOCK";
 };
 
 type Message = {
@@ -73,12 +74,16 @@ export function AgentChat() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "The inspection service is unavailable.");
 
-      const decision = data.decision as Decision;
+      const decision = { ...data.decision, riskOutcome: data.risk?.outcome } as Decision;
       const isExactWalletTest = parsed.amountAtomic === "1000000000000000000000" &&
         parsed.target === "confirmwithmandate.testnet";
-      const canShowWalletApproval = isExactWalletTest &&
+      const canShowWalletApproval = isExactWalletTest && decision.riskOutcome === "ALLOW" &&
         (decision.outcome === "ALLOW" || decision.outcome === "REQUIRE_APPROVAL");
-      const explanation = decision.outcome === "ALLOW"
+      const explanation = decision.riskOutcome === "WARN"
+        ? "Counterparty risk is WARN. Evidence is incomplete or concerning, so MANDATE has paused wallet execution. The risk-review and owner-approval workflow is not yet available; no transaction can be signed or sent."
+        : decision.riskOutcome === "BLOCK"
+          ? "Counterparty risk is BLOCK. MANDATE stopped this proposal. No wallet challenge or transaction was created."
+          : decision.outcome === "ALLOW"
         ? (canShowWalletApproval
             ? "The active policy passed this exact Testnet proposal. You can now request wallet verification and explicitly approve the transfer."
             : "The active policy passed inspection, but this proposal is outside the fixed wallet execution test. No funds were moved.")
