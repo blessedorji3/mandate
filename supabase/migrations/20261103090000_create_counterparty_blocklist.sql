@@ -74,3 +74,76 @@ $$;
 
 revoke all on function public.lookup_counterparty_blocklist(text, text) from public, anon, authenticated;
 grant execute on function public.lookup_counterparty_blocklist(text, text) to service_role;
+
+
+-- Bind final one-time consumption to the exact inspected proposal. This closes
+-- the legacy path where a client could pair a valid receipt with another
+-- proposal reference when asking the server to consume it.
+create or replace function public.consume_near_transfer_authorization_v3(
+  p_owner_id uuid,
+  p_token_hash text,
+  p_signer_account_id text,
+  p_network text,
+  p_receiver_id text,
+  p_asset text,
+  p_amount_atomic text,
+  p_action_type text,
+  p_action_digest text,
+  p_proposal_id text
+) returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public, mandate_private
+as $$
+declare r mandate_private.near_transfer_receipts%rowtype;
+begin
+  if p_owner_id is null
+     or p_token_hash !~ '^[0-9a-f]{64}$'
+     or p_action_digest !~ '^[0-9a-f]{64}$'
+     or p_proposal_id is null
+     or p_proposal_id !~ '^[a-zA-Z0-9_-]{1,128}$' then
+    return false;
+  end if;
+
+  select * into r
+  from mandate_private.near_transfer_receipts
+  where owner_id = p_owner_id
+    and token_hash = decode(p_token_hash, 'hex')
+    and proposal_id = p_proposal_id
+    and consumed_at is null
+    and expires_at > now()
+    and signer_account_id = p_signer_account_id
+    and network = p_network
+    and receiver_id = p_receiver_id
+    and asset = p_asset
+    and amount_atomic = p_amount_atomic
+    and action_type = p_action_type
+    and action_digest = p_action_digest
+  for update;
+
+  if not found then return false; end if;
+
+  if not exists (
+    select 1 from public.security_policies p
+    where p.id = r.policy_id
+      and p.owner_id = p_owner_id
+      and p.active = true
+      and p.version = r.policy_version
+      and 'transfer' = any(p.allowed_action_types)
+      and 'confirmwithmandate.testnet' = any(p.allowed_recipients)
+      and p.max_amount_atomic::numeric >= 1000000000000000000000::numeric
+      and p.require_approval_for_all_actions = false
+  ) then return false; end if;
+
+  update mandate_private.near_transfer_receipts
+  set consumed_at = now()
+  where id = r.id
+    and owner_id = p_owner_id
+    and proposal_id = p_proposal_id
+    and consumed_at is null;
+  return found;
+end;
+$$;
+
+revoke all on function public.consume_near_transfer_authorization_v3(uuid,text,text,text,text,text,text,text,text,text) from public, anon, authenticated;
+grant execute on function public.consume_near_transfer_authorization_v3(uuid,text,text,text,text,text,text,text,text,text) to service_role;
