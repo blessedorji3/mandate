@@ -1,0 +1,106 @@
+import { assert, assertEquals } from "jsr:@std/assert@1";
+import { normalizeNearSignedMessage } from "../../../src/lib/near-signed-message.ts";
+import { verifyNep413, recoveryTestUtils } from "./recovery-security.ts";
+
+// Test-only Meteor contract harness. It uses the same signMessage inputs and
+// NEP-413 envelope shape as the Meteor executor; it never connects to a wallet.
+const recipient = "mandate-snowy.vercel.app";
+const accountId = "mandate-diagnostic.testnet";
+const message = [
+  "MANDATE RECOVERY CODE RESET — WALLET OWNERSHIP PROOF",
+  "I authorize replacing only my MANDATE independent recovery code. This does not replace or revoke any wallet, move funds, or start the 24-hour wallet recovery process.",
+  "MANDATE owner: diagnostic-owner-id",
+  `Active NEAR account: ${accountId}`,
+  "Active NEAR public key: __PUBLIC_KEY__",
+  "Challenge: diagnostic-challenge-id",
+  `Nonce: ${"ab".repeat(32)}`,
+].join("\n");
+
+function concat(...parts: Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let offset = 0;
+  for (const part of parts) { output.set(part, offset); offset += part.length; }
+  return output;
+}
+function u32(value: number): Uint8Array {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, value, true);
+  return bytes;
+}
+function borshString(value: string): Uint8Array {
+  const bytes = new TextEncoder().encode(value);
+  return concat(u32(bytes.length), bytes);
+}
+function meteorNep413Payload(messageValue: string, nonceBytes: Uint8Array, recipientValue: string): Uint8Array {
+  const prefix = new Uint8Array(4);
+  new DataView(prefix.buffer).setUint32(0, 0x80000000 + 413, true);
+  // NEP-413 callback_url: None (Borsh Option tag 0).
+  return concat(prefix, borshString(messageValue), nonceBytes, borshString(recipientValue), new Uint8Array([0]));
+}
+function base64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+Deno.test("recovery reset: Meteor signMessage inputs and server NEP-413 reconstruction agree", async () => {
+  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
+  const rawPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+  const publicKey = `ed25519:${recoveryTestUtils.base58Encode(rawPublicKey)}`;
+  const challengeMessage = message.replace("__PUBLIC_KEY__", publicKey);
+  const challengeNonceHex = "ab".repeat(32);
+  const challengeNonceBytes = Uint8Array.from(challengeNonceHex.match(/.{2}/g)!, (byte) => Number.parseInt(byte, 16));
+  const challengeRecipient = recipient;
+
+  // These are the exact values supplied by recovery-code-panel to wallet.signMessage.
+  const meteorInput = {
+    message: challengeMessage,
+    recipient: challengeRecipient,
+    nonce: challengeNonceBytes.slice(),
+    network: "testnet",
+    signerId: accountId,
+  };
+  assertEquals(meteorInput.message, challengeMessage, "challenge message must be passed unchanged");
+  assertEquals(meteorInput.recipient, challengeRecipient, "challenge recipient must be passed unchanged");
+  assertEquals(meteorInput.nonce.length, 32, "Meteor must receive the decoded 32-byte nonce");
+  assertEquals(Array.from(meteorInput.nonce), Array.from(challengeNonceBytes), "Meteor nonce bytes must match challenge nonceHex");
+
+  // Simulate Meteor's NEP-413 executor output using a fresh disposable Ed25519 key.
+  const meteorPayload = meteorNep413Payload(meteorInput.message, meteorInput.nonce, meteorInput.recipient);
+  const meteorDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", meteorPayload.slice().buffer as ArrayBuffer));
+  const rawSignature = new Uint8Array(await crypto.subtle.sign(
+    { name: "Ed25519" }, pair.privateKey, meteorDigest.slice().buffer as ArrayBuffer,
+  ));
+  assertEquals(rawSignature.length, 64, "Ed25519 signature must be 64 bytes");
+  const returnedByMeteor = {
+    accountId,
+    publicKey: { keyType: "ed25519", data: rawPublicKey },
+    signature: rawSignature,
+  };
+
+  // Run the actual application normalizer against Meteor-shaped return values.
+  const normalized = normalizeNearSignedMessage(returnedByMeteor);
+  assertEquals(normalized.accountId, accountId, "returned account ID must be preserved");
+  assertEquals(normalized.publicKey, publicKey, "returned PublicKey bytes must normalize to the registered ed25519 key");
+  assertEquals(normalized.signature.length, 88, "64-byte signature must become padded Base64");
+  assertEquals(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(normalized.signature), true);
+  const normalizedSignatureBytes = Uint8Array.from(atob(normalized.signature), (char) => char.charCodeAt(0));
+  assertEquals(normalizedSignatureBytes.length, 64, "normalized Base64 must decode to 64 signature bytes");
+
+  // Independently reconstruct the server's envelope and compare its digest to
+  // the digest signed by the Meteor harness, then invoke the actual server verifier.
+  const serverPayload = meteorNep413Payload(challengeMessage, challengeNonceBytes, recipient);
+  assertEquals(Array.from(serverPayload), Array.from(meteorPayload), "server payload bytes must exactly equal Meteor-signed payload bytes");
+  const serverDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", serverPayload.slice().buffer as ArrayBuffer));
+  assertEquals(Array.from(serverDigest), Array.from(meteorDigest), "server SHA-256 digest must equal Meteor signing digest");
+  assertEquals(
+    await verifyNep413(challengeMessage, challengeNonceBytes, recipient, normalized.publicKey, normalized.signature),
+    true,
+    "actual MANDATE verifier must accept the normalized Meteor-shaped signature",
+  );
+
+  // Negative controls: a changed challenge message, recipient, or nonce must fail.
+  const changedNonce = challengeNonceBytes.slice();
+  changedNonce[0] ^= 1;
+  assertEquals(await verifyNep413(challengeMessage + " altered", challengeNonceBytes, recipient, publicKey, normalized.signature), false);
+  assertEquals(await verifyNep413(challengeMessage, challengeNonceBytes, "wrong-recipient.example", publicKey, normalized.signature), false);
+  assertEquals(await verifyNep413(challengeMessage, changedNonce, recipient, publicKey, normalized.signature), false);
+});
