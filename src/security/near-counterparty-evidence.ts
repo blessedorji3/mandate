@@ -92,6 +92,7 @@ export async function collectNearTestnetEvidence(
 ): Promise<NearCounterpartyEvidence> {
   if (
     typeof accountId !== "string" ||
+    accountId.length < 2 ||
     accountId.length > MAX_ACCOUNT_ID_LENGTH ||
     !ACCOUNT_ID.test(accountId)
   ) {
