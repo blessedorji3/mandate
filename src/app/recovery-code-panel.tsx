@@ -208,10 +208,6 @@ export function RecoveryCodePanel() {
       setSafeDiagnostic(diagnostic);
       setNotice("Diagnostic captured. No recovery-code reset was submitted; your existing recovery code remains unchanged.");
       return;
-      if (result.reset !== true || typeof result.recoveryCode !== "string") throw new Error("MANDATE did not confirm the recovery-code reset.");
-      setRecoveryCode(result.recoveryCode);
-      setCopied(false);
-      setNotice("Recovery code reset. Your previous code is invalid. Save the new code now; it will not be shown again.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Recovery-code reset failed.");
       setNotice("Recovery code was not reset.");
