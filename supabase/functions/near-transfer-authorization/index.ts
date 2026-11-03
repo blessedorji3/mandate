@@ -259,7 +259,7 @@ export async function handleRequest(req: Request) {
   const reply = (body: unknown, status = 200) => json(body, status, origin);
   if (req.method === "OPTIONS") return new Response("ok", { headers: responseHeaders(origin) });
   if (req.method !== "POST") return reply({ error: "Method not allowed." }, 405);
-  if (!ALLOWED_ORIGINS.has(origin)) return reply({ error: "Origin not allowed." }, 403);
+  if (origin && !ALLOWED_ORIGINS.has(origin)) return reply({ error: "Origin not allowed." }, 403);
   if (!PROJECT_URL || !ANON_KEY || !SERVICE_KEY) {
     return reply({ error: "Authorization service is not configured." }, 503);
   }
