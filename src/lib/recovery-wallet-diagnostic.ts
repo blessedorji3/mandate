@@ -1,13 +1,17 @@
-type SafeWalletDiagnostic = {
-  challengeMessageUnchanged: boolean;
-  challengeRecipientUnchanged: boolean;
-  nonceIs32Bytes: boolean;
+import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
+
+export type SafeWalletDiagnostic = {
+  challengeMessageForwardedUnchanged: boolean;
+  challengeRecipientForwardedUnchanged: boolean;
+  nonceLengthBytes: number;
+  nonceLengthValid: boolean;
   returnedAccountMatches: boolean;
+  publicKeyRepresentation: string;
   returnedPublicKeyMatches: boolean;
   signatureRepresentation: string;
   signatureLengthBytes: number | null;
-  signatureBase64Valid: boolean;
-  clientPayloadDigestCreated: boolean;
+  signatureEncodingValid: boolean;
+  serverPayloadReconstruction: "SHA-256 digest generated" | "failed";
 };
 
 function asBytes(value: unknown): Uint8Array | null {
@@ -32,19 +36,13 @@ function borshString(value: string): Uint8Array {
   const bytes = new TextEncoder().encode(value);
   return concat(u32(bytes.length), bytes);
 }
-function serverStyleNep413Bytes(message: string, nonce: Uint8Array, recipient: string): Uint8Array {
+function reconstructServerPayload(message: string, nonce: Uint8Array, recipient: string): Uint8Array {
   const prefix = new Uint8Array(4);
   new DataView(prefix.buffer).setUint32(0, 0x80000000 + 413, true);
   return concat(prefix, borshString(message), nonce, borshString(recipient), new Uint8Array([0]));
 }
-function validBase64(value: string): boolean {
-  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value) && value.length > 0;
-}
 
-/**
- * Produces metadata only. Never returns or logs the message, nonce, signature,
- * public-key bytes, or recovery credential.
- */
+/** Safe metadata only: never returns/logs raw challenge, nonce, key, signature or recovery code. */
 export async function inspectRecoveryWalletResponse(input: {
   challengeMessage: string;
   challengeRecipient: string;
@@ -53,46 +51,58 @@ export async function inspectRecoveryWalletResponse(input: {
   expectedPublicKey: string;
   walletResponse: unknown;
 }): Promise<SafeWalletDiagnostic> {
-  const record = input.walletResponse && typeof input.walletResponse === "object"
-    ? input.walletResponse as Record<string, unknown>
-    : {};
-  const returnedAccount = typeof record.accountId === "string" ? record.accountId : "";
-  const returnedKey = record.publicKey;
-  let publicKeyText = "";
-  if (typeof returnedKey === "string") publicKeyText = returnedKey;
-  else if (returnedKey && typeof returnedKey === "object" && typeof (returnedKey as { toString?: unknown }).toString === "function") {
-    const rendered = (returnedKey as { toString(): string }).toString();
-    if (typeof rendered === "string") publicKeyText = rendered;
-  }
-  const sigValue = record.signature;
-  const sigBytes = asBytes(sigValue);
-  const sigText = typeof sigValue === "string" ? sigValue : "";
+  const raw = input.walletResponse && typeof input.walletResponse === "object"
+    ? input.walletResponse as Record<string, unknown> : {};
+  const publicKeyValue = raw.publicKey;
+  const publicKeyRepresentation = typeof publicKeyValue === "string" ? "string"
+    : publicKeyValue && typeof publicKeyValue === "object"
+      ? ("keyType" in publicKeyValue ? "keyType/data object" : "PublicKey-like object")
+      : typeof publicKeyValue;
+  const signatureValue = raw.signature;
+  const signatureRepresentation = signatureValue instanceof Uint8Array ? "Uint8Array"
+    : signatureValue instanceof ArrayBuffer ? "ArrayBuffer"
+    : Array.isArray(signatureValue) ? "number array"
+    : typeof signatureValue;
+  let normalized: ReturnType<typeof normalizeNearSignedMessage> | null = null;
+  try { normalized = normalizeNearSignedMessage(input.walletResponse); } catch { /* represented by safe validity fields */ }
   let signatureLengthBytes: number | null = null;
-  let signatureBase64Valid = false;
-  if (sigBytes) {
-    signatureLengthBytes = sigBytes.length;
-    signatureBase64Valid = sigBytes.length === 64;
-  } else if (sigText) {
-    signatureBase64Valid = validBase64(sigText);
-    if (signatureBase64Valid) {
-      try { signatureLengthBytes = atob(sigText).length; } catch { signatureBase64Valid = false; }
+  let signatureEncodingValid = false;
+  if (normalized) {
+    try {
+      const binary = atob(normalized.signature);
+      signatureLengthBytes = binary.length;
+      signatureEncodingValid = binary.length === 64;
+    } catch { signatureEncodingValid = false; }
+  } else {
+    const bytes = asBytes(signatureValue);
+    if (bytes) {
+      signatureLengthBytes = bytes.length;
+      signatureEncodingValid = bytes.length === 64;
+    } else if (typeof signatureValue === "string") {
+      try {
+        const binary = atob(signatureValue);
+        signatureLengthBytes = binary.length;
+        signatureEncodingValid = binary.length === 64;
+      } catch { signatureEncodingValid = false; }
     }
   }
-  let clientPayloadDigestCreated = false;
+  let serverPayloadReconstruction: SafeWalletDiagnostic["serverPayloadReconstruction"] = "failed";
   try {
-    const payload = serverStyleNep413Bytes(input.challengeMessage, input.nonce, input.challengeRecipient);
+    const payload = reconstructServerPayload(input.challengeMessage, input.nonce, input.challengeRecipient);
     await crypto.subtle.digest("SHA-256", payload);
-    clientPayloadDigestCreated = true;
-  } catch { /* report false without leaking input values */ }
+    serverPayloadReconstruction = "SHA-256 digest generated";
+  } catch { /* no sensitive data emitted */ }
   return {
-    challengeMessageUnchanged: input.challengeMessage.length > 0,
-    challengeRecipientUnchanged: input.challengeRecipient.length > 0,
-    nonceIs32Bytes: input.nonce.length === 32,
-    returnedAccountMatches: returnedAccount === input.expectedAccountId,
-    returnedPublicKeyMatches: publicKeyText === input.expectedPublicKey,
-    signatureRepresentation: sigBytes ? "byte-array" : typeof sigValue,
+    challengeMessageForwardedUnchanged: input.challengeMessage.length > 0,
+    challengeRecipientForwardedUnchanged: input.challengeRecipient.length > 0,
+    nonceLengthBytes: input.nonce.length,
+    nonceLengthValid: input.nonce.length === 32,
+    returnedAccountMatches: raw.accountId === input.expectedAccountId,
+    publicKeyRepresentation: publicKeyRepresentation,
+    returnedPublicKeyMatches: normalized?.publicKey === input.expectedPublicKey,
+    signatureRepresentation,
     signatureLengthBytes,
-    signatureBase64Valid,
-    clientPayloadDigestCreated,
+    signatureEncodingValid,
+    serverPayloadReconstruction,
   };
 }
