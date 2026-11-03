@@ -19,7 +19,7 @@
 5. Risk evaluation never signs or broadcasts.
 
 ## Integration status
-This change adds a pure evaluator, tests, private storage schema, and this design note. It does not yet wire RPC/indexer ingestion, reviewer workflow, API integration, or signer-side enforcement. It must not be advertised as active production protection until those are implemented and independently tested.
+This branch now contains a pure evaluator, current-state and indexed-history collectors, a server-side evidence orchestrator, a private blocklist schema and lookup RPC, tests, and an `agent-inspect` integration. These changes are still under PR review and are not deployed to production. Historical contract-code-change evidence and the reviewer workflow/UI are not implemented. The endpoint maps risk `WARN` to the existing database-compatible `REQUIRE_APPROVAL` result; this is a decision response, not proof that the wallet signer independently enforces owner approval. Do not advertise this as active production protection until the migration, endpoint, and signer-side enforcement are deployed and independently tested.
 
 
 ## Read-only NEAR Testnet collector
@@ -45,3 +45,12 @@ This collector is read-only, uses an eight-second request timeout, rejects redir
 
 
 The history collector accepts an optional FastNear bearer API key as a server-supplied argument. If the provider requires authentication and no key is configured, the collector returns `UNAVAILABLE`; it does not attempt to bypass authentication. Do not place a provider key in browser code or commit it to the repository. Account IDs shorter than NEAR's two-character minimum or longer than 64 characters are rejected before network access.
+
+
+## Server-side integration (PR branch only)
+
+`agent-inspect` now calls the risk service after loading the owner's policy. It queries prior authorization receipts for the destination and calls a service-role-only RPC to read the private shared blocklist. RPC/indexer/database failures become unavailable evidence. A reviewed confirmed blocklist entry forces `BLOCK`; a pending report or incomplete evidence produces `WARN`. The endpoint maps `WARN` to `REQUIRE_APPROVAL` because the existing `authorization_decisions.outcome` constraint supports only `ALLOW`, `BLOCK`, and `REQUIRE_APPROVAL`. The full risk decision and evidence summary are returned and stored with the authorization receipt.
+
+The blocklist migration and lookup RPC are committed on this branch only. The connected Supabase production project has not applied this migration; its current database does not yet contain `mandate_private.counterparty_blocklist`. Therefore deploying the updated Edge Function before applying and verifying the migration would cause blocklist lookup to fail and requests to require owner approval (fail-closed). No production migration or Edge Function deployment has been performed.
+
+The current contract-code-change signal remains unavailable. Contract counterparties therefore remain `WARN` until historical code-change ingestion is implemented. The owner approval response also still needs end-to-end signer-path enforcement; this endpoint alone cannot guarantee that an agent obeys the pause.
