@@ -73,7 +73,7 @@ describe("assessCounterpartyRisk", () => {
     let received: unknown;
     const result = await assessCounterpartyRisk(account, deps({
       findBlocklistRecord: async () => { throw new Error("database unavailable"); },
-      collectRisk: async (accountId: string, options: { previousInteractions: number | null; blocklist: null; blocklistLookupStatus: string }) => {
+      collectRisk: async (accountId: string, options: { previousInteractions: number | null; blocklist: { status: "confirmed" | "pending" | "rejected"; evidenceRef: string; reason: string; reviewedAt?: string } | null; blocklistLookupStatus: "verified" | "unavailable" }) => {
         received = options;
         return {
           network: "testnet" as const, accountId, status: "PARTIAL" as const, collectedAt: at,
