@@ -196,6 +196,7 @@ export function RecoveryCodePanel() {
       const walletRequest = {
         message: challenge.message,
         recipient: challenge.recipient,
+        callbackUrl: challenge.callbackUrl,
         nonce: nonceBytes,
         network: "testnet" as const,
         signerId: activeWallet,
@@ -204,6 +205,8 @@ export function RecoveryCodePanel() {
       const diagnostic = await inspectRecoveryWalletResponse({
         challengeMessage: challenge.message,
         challengeRecipient: challenge.recipient,
+        challengeCallbackUrl: challenge.callbackUrl,
+        walletRequestCallbackUrl: walletRequest.callbackUrl,
         walletRequestMessage: walletRequest.message,
         walletRequestRecipient: walletRequest.recipient,
         nonce: nonceBytes,
