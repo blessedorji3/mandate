@@ -77,14 +77,18 @@ function validBlocklist(value: unknown): value is BlocklistEvidence {
 }
 
 /** Risk result only: never signs, broadcasts, or replaces owner policy authorization. */
-export function evaluateCounterpartyRisk(input: unknown): CounterpartyRiskDecision {
-  const now = Date.now();
+export function evaluateCounterpartyRisk(
+  input: unknown,
+  now: () => Date = () => new Date(),
+): CounterpartyRiskDecision {
+  const nowDate = now();
+  const nowMs = nowDate.getTime();
   const fallback: CounterpartyRiskDecision = {
     outcome: "WARN",
     reasons: ["Risk input is incomplete or malformed; human review is required."],
     evidence: [],
     accountId: record(input) && typeof input.accountId === "string" ? input.accountId.slice(0, 128) : "unknown",
-    evaluatedAt: new Date(now).toISOString(),
+    evaluatedAt: nowDate.toISOString(),
     requiresHumanApproval: true,
   };
 
@@ -103,7 +107,7 @@ export function evaluateCounterpartyRisk(input: unknown): CounterpartyRiskDecisi
 
   const data = input as unknown as CounterpartyRiskInput;
   const evaluatedAtMs = Date.parse(data.evaluatedAt);
-  if (Math.abs(now - evaluatedAtMs) > MAX_EVALUATION_AGE_MS) {
+  if (Math.abs(nowMs - evaluatedAtMs) > MAX_EVALUATION_AGE_MS) {
     return { ...fallback, accountId: data.accountId, evaluatedAt: data.evaluatedAt,
       reasons: ["Risk evaluation timestamp is stale or in the future; human review is required."] };
   }
