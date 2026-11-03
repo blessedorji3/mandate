@@ -45,6 +45,7 @@ const REQUIRED_SIGNALS = [
   "recent_activity",
   "account_type",
   "previous_mandate_interactions",
+  "shared_blocklist_lookup",
 ] as const;
 
 function record(value: unknown): value is Record<string, unknown> {
