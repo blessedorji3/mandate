@@ -196,7 +196,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
 
   async function executeTestTransfer() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || busy || txHash) return;
+    if (!connector || !accountId || !walletRegistered || !proposalId || busy || txHash) return;
     setBusy(true);
     setError("");
     setNotice("Checking your active MANDATE policy…");
@@ -204,10 +204,11 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       const challenge = await authorizationRequest({
         action: "challenge",
         signerAccountId: accountId,
-        ...(proposalId ? { proposalId } : {}),
+        proposalId,
       });
       if (!["ALLOW", "REQUIRE_APPROVAL"].includes(challenge.decision?.outcome) ||
-          (proposalId && challenge.decision?.proposalId !== proposalId) ||
+          challenge.risk?.outcome !== "ALLOW" ||
+          challenge.decision?.proposalId !== proposalId ||
           challenge.intent?.receiverId !== TRANSFER.receiverId ||
           challenge.intent?.amountAtomic !== TRANSFER.amountAtomic) {
         throw new Error("MANDATE did not authorize a challenge for this exact proposal. Nothing was sent.");
@@ -235,7 +236,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
         challengeId: challenge.challengeId,
         signedMessage,
       });
-      if (verified.authorized !== true || typeof verified.receipt !== "string") {
+      if (verified.authorized !== true || typeof verified.receipt !== "string" || verified.proposalId !== proposalId) {
         throw new Error("MANDATE did not issue a one-time authorization. Nothing was sent.");
       }
 
@@ -245,6 +246,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
         action: "consume",
         receipt: verified.receipt,
         signerAccountId: accountId,
+        proposalId,
       });
       if (consumed.consumed !== true) {
         throw new Error("The one-time authorization could not be consumed. Nothing was sent.");
@@ -325,10 +327,11 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed}>
-            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || !proposalId || Boolean(txHash) || authorizationConsumed}>
+            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Inspection required"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
+          {!proposalId && <p className="near-wallet-notice">Direct wallet transfers are disabled. Inspect an eligible proposal in Agent Chat first; counterparty risk must return ALLOW.</p>}
           {txHash && receipt && error && (
             <button className="outline-button" onClick={retryTransactionVerification} disabled={busy}>Retry verification only (no transfer)</button>
           )}
