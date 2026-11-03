@@ -2,9 +2,9 @@ name: MANDATE checks
 
 on:
   push:
-    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset]
+    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset, fix/migration-history-reconciliation]
   pull_request:
-    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset]
+    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset, fix/migration-history-reconciliation]
 
 jobs:
   test:
