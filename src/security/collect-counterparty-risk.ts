@@ -16,6 +16,7 @@ export type RiskCollectionOptions = {
   fastNearApiKey?: string;
   previousInteractions?: number | null;
   blocklist?: BlocklistEvidence | null;
+  blocklistLookupStatus?: "verified" | "unavailable";
 };
 
 function toRiskSignal(signal: NearEvidenceSignal | HistoricalSignal): RiskSignal {
@@ -66,6 +67,15 @@ export async function collectAndEvaluateNearTestnetCounterparty(
   }
 
   const interactionCount = options.previousInteractions;
+  merged.push({
+    name: "shared_blocklist_lookup",
+    status: options.blocklistLookupStatus === "verified" ? "verified" : "unavailable",
+    observedAt: evaluatedAt,
+    source: "MANDATE reviewed blocklist",
+    summary: options.blocklistLookupStatus === "verified"
+      ? options.blocklist ? "Shared blocklist lookup completed and returned a record." : "Shared blocklist lookup completed; no report was found."
+      : "Shared blocklist lookup failed or was not supplied; absence of a report cannot be assumed.",
+  });
   merged.push({
     name: "previous_mandate_interactions",
     status: Number.isSafeInteger(interactionCount) && Number(interactionCount) >= 0 ? "verified" : "unavailable",
