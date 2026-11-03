@@ -193,13 +193,19 @@ export function RecoveryCodePanel() {
       if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
       setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
       const nonceBytes = fromHex(challenge.nonceHex);
-      const walletSignedMessage = await wallet.signMessage({
-        message: challenge.message, recipient: challenge.recipient, nonce: nonceBytes,
-        network: "testnet", signerId: activeWallet,
-      });
+      const walletRequest = {
+        message: challenge.message,
+        recipient: challenge.recipient,
+        nonce: nonceBytes,
+        network: "testnet" as const,
+        signerId: activeWallet,
+      };
+      const walletSignedMessage = await wallet.signMessage(walletRequest);
       const diagnostic = await inspectRecoveryWalletResponse({
         challengeMessage: challenge.message,
         challengeRecipient: challenge.recipient,
+        walletRequestMessage: walletRequest.message,
+        walletRequestRecipient: walletRequest.recipient,
         nonce: nonceBytes,
         expectedAccountId: challenge.accountId,
         expectedPublicKey: challenge.publicKey,
