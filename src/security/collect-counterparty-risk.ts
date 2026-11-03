@@ -99,7 +99,7 @@ export async function collectAndEvaluateNearTestnetCounterparty(
       ? Number(interactionCount) : null,
     signals: merged,
     blocklist: options.blocklist ?? null,
-  });
+  }, now);
 
   const unavailable = current.status === "UNAVAILABLE" || history.status === "UNAVAILABLE";
   return {
