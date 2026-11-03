@@ -22,3 +22,55 @@ create index if not exists counterparty_blocklist_lookup_idx on mandate_private.
 alter table mandate_private.counterparty_blocklist enable row level security;
 revoke all on mandate_private.counterparty_blocklist from public,anon,authenticated;
 grant select,insert,update on mandate_private.counterparty_blocklist to service_role;
+
+
+-- Internal lookup is exposed only through a service-role-only RPC. The private
+-- schema itself remains unavailable through the public Data API.
+create or replace function public.lookup_counterparty_blocklist(
+  p_network text,
+  p_account_id text
+)
+returns table(
+  status text,
+  evidence_ref text,
+  reason text,
+  reviewed_at timestamptz,
+  reviewer_owner_id uuid
+)
+language plpgsql
+security definer
+set search_path = pg_catalog, mandate_private
+as $$
+begin
+  if p_network not in ('testnet', 'mainnet')
+     or p_account_id is null
+     or length(p_account_id) < 2
+     or length(p_account_id) > 64
+     or p_account_id !~ '^[a-z0-9._-]+$' then
+    raise exception 'Invalid counterparty lookup';
+  end if;
+
+  return query
+    select b.status, b.evidence_ref, b.reason, b.reviewed_at, b.reviewer_owner_id
+    from mandate_private.counterparty_blocklist b
+    where b.network = p_network
+      and b.account_id = p_account_id
+      and b.status = 'confirmed'
+    order by b.reviewed_at desc
+    limit 1;
+
+  if found then return; end if;
+
+  return query
+    select b.status, b.evidence_ref, b.reason, b.reviewed_at, b.reviewer_owner_id
+    from mandate_private.counterparty_blocklist b
+    where b.network = p_network
+      and b.account_id = p_account_id
+      and b.status = 'pending'
+    order by b.created_at desc
+    limit 1;
+end;
+$$;
+
+revoke all on function public.lookup_counterparty_blocklist(text, text) from public, anon, authenticated;
+grant execute on function public.lookup_counterparty_blocklist(text, text) to service_role;
