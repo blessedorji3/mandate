@@ -42,3 +42,6 @@ The collector uses a fixed Testnet RPC endpoint and an eight-second abort timeou
 Recent activity is calculated from the newest indexed transaction timestamp. The collector reports the earliest indexed activity separately. It marks account age as verified only if the earliest indexed transaction explicitly contains `CreateAccount` and its receiver is the account being evaluated. Otherwise account age remains unavailable. Indexer failures, malformed data and unprovable creation events never become an ALLOW signal.
 
 This collector is read-only, uses an eight-second request timeout, rejects redirects, validates account IDs and history rows, and does not invoke wallet or transaction-submission methods. It is a data-source integration only; it is not yet wired into `agent-inspect` or the wallet execution path.
+
+
+The history collector accepts an optional FastNear bearer API key as a server-supplied argument. If the provider requires authentication and no key is configured, the collector returns `UNAVAILABLE`; it does not attempt to bypass authentication. Do not place a provider key in browser code or commit it to the repository. Account IDs shorter than NEAR's two-character minimum or longer than 64 characters are rejected before network access.
