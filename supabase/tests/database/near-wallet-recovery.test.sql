@@ -316,7 +316,7 @@ select throws_ok(
     repeat('9',64),
     'revoked wallet reset attempt',
     'https://mandate-snowy.vercel.app'
-  )$,
+  )$$,
   'P0001',
   'The signing wallet is not the active registered MANDATE wallet',
   'revoked historical wallet cannot create a recovery-code reset challenge'
