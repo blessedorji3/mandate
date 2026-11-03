@@ -106,19 +106,12 @@ Deno.serve(async (req: Request) => {
   // because the existing database enum intentionally has no WARN value.
   const riskAssessment = await assessCounterpartyRisk(target, {
     findBlocklistRecord: async (accountId) => {
-      const blocklist = admin.schema("mandate_private").from("counterparty_blocklist");
-      const confirmed = await blocklist
-        .select("status, evidence_ref, reason, reviewed_at, reviewer_owner_id")
-        .eq("network", "testnet").eq("account_id", accountId).eq("status", "confirmed")
-        .order("reviewed_at", { ascending: false }).limit(1).maybeSingle();
-      if (confirmed.error) throw new Error("Blocklist lookup unavailable.");
-      if (confirmed.data) return confirmed.data;
-      const pending = await admin.schema("mandate_private").from("counterparty_blocklist")
-        .select("status, evidence_ref, reason, reviewed_at, reviewer_owner_id")
-        .eq("network", "testnet").eq("account_id", accountId).eq("status", "pending")
-        .order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (pending.error) throw new Error("Blocklist lookup unavailable.");
-      return pending.data;
+      const lookup = await admin.rpc("lookup_counterparty_blocklist", {
+        p_network: "testnet",
+        p_account_id: accountId,
+      });
+      if (lookup.error) throw new Error("Blocklist lookup unavailable.");
+      return Array.isArray(lookup.data) ? lookup.data[0] ?? null : null;
     },
     countPreviousInteractions: async (accountId) => {
       const result = await admin.from("authorization_decisions")
