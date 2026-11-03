@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
-import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
+import { assessCounterpartyRisk } from "../_shared/counterparty-risk-service.ts";
 
 type ActionType = "transfer" | "token_approval" | "swap" | "contract_call";
 type Proposal = { id: string; agentId: string; actionType: ActionType; asset: string; amountAtomic: string; target: string; protocol?: string; approvalAmountAtomic?: string };
