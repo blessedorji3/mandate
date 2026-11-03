@@ -35,7 +35,7 @@ export type CounterpartyRiskDecision = {
   requiresHumanApproval: boolean;
 };
 
-const ACCOUNT_ID = /^(?:[a-z0-9_-]+\\.)*[a-z0-9_-]+$/;
+const ACCOUNT_ID = /^(?:[a-z0-9_-]+\.)*[a-z0-9_-]+$/;
 const MAX_SIGNALS = 32;
 const MAX_TEXT = 500;
 const MAX_EVIDENCE_AGE_MS = 24 * 60 * 60 * 1000;
