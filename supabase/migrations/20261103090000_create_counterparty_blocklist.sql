@@ -42,7 +42,7 @@ security definer
 set search_path = pg_catalog, mandate_private
 as $$
 begin
-  if p_network not in ('testnet', 'mainnet')
+  if p_network is null or p_network not in ('testnet', 'mainnet')
      or p_account_id is null
      or length(p_account_id) < 2
      or length(p_account_id) > 64
