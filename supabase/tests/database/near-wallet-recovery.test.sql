@@ -301,7 +301,8 @@ select is(
     'new-wallet-a.testnet',
     'ed25519:' || repeat('2',44),
     repeat('a',64),
-    'local recovery-code reset proof'
+    'local recovery-code reset proof',
+    'https://mandate-snowy.vercel.app'
   ),
   '90000000-0000-4000-8000-000000000001'::uuid,
   'active registered wallet can create a recovery-code reset challenge'
@@ -313,11 +314,20 @@ select throws_ok(
     'old-wallet-a.testnet',
     'ed25519:' || repeat('1',44),
     repeat('9',64),
-    'revoked wallet reset attempt'
-  )$$,
+    'revoked wallet reset attempt',
+    'https://mandate-snowy.vercel.app'
+  )$,
   'P0001',
   'The signing wallet is not the active registered MANDATE wallet',
   'revoked historical wallet cannot create a recovery-code reset challenge'
+);
+select is(
+  (select callback_url from public.get_near_wallet_recovery_reset_challenge_v1(
+    '10000000-0000-4000-8000-000000000001',
+    '90000000-0000-4000-8000-000000000001'
+  )),
+  'https://mandate-snowy.vercel.app',
+  'recovery reset challenge stores the exact callback URL'
 );
 select is(
   (select count(*)::integer from public.get_near_wallet_recovery_reset_challenge_v1(
