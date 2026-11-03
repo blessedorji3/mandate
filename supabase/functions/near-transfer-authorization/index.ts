@@ -111,7 +111,7 @@ async function getPolicy(admin: any, ownerId: string) {
   return data;
 }
 
-async function assessRiskForAccount(admin: ReturnType<typeof createClient>, accountId: string) {
+async function assessRiskForAccount(admin: any, accountId: string) {
   return assessCounterpartyRisk(accountId, {
     findBlocklistRecord: async (target) => {
       const lookup = await (admin as any).rpc("lookup_counterparty_blocklist", {
