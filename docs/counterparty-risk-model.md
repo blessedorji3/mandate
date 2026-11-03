@@ -31,3 +31,14 @@ This change adds a pure evaluator, tests, private storage schema, and this desig
 It never calls transaction submission methods and never requests wallet credentials. The collector returns `PARTIAL` when current state is available and explicitly marks account age, recent activity, prior MANDATE interactions, and contract code-change history as unavailable. RPC/network failures return `UNAVAILABLE`. Neither result is sufficient for ALLOW; the risk evaluator must remain WARN until the required historical and receipt evidence is integrated.
 
 The collector uses a fixed Testnet RPC endpoint and an eight-second abort timeout. It is not yet called by `agent-inspect`, has no Mainnet mode, and is not a production control.
+
+
+## Read-only NEAR Testnet historical evidence
+
+`src/security/near-counterparty-history.ts` queries FastNear's public Testnet indexed history:
+- `POST /v0/account` in ascending and descending order to retrieve the earliest and newest indexed transactions.
+- `POST /v0/transactions` to inspect the earliest transaction's actions and receiver.
+
+Recent activity is calculated from the newest indexed transaction timestamp. The collector reports the earliest indexed activity separately. It marks account age as verified only if the earliest indexed transaction explicitly contains `CreateAccount` and its receiver is the account being evaluated. Otherwise account age remains unavailable. Indexer failures, malformed data and unprovable creation events never become an ALLOW signal.
+
+This collector is read-only, uses an eight-second request timeout, rejects redirects, validates account IDs and history rows, and does not invoke wallet or transaction-submission methods. It is a data-source integration only; it is not yet wired into `agent-inspect` or the wallet execution path.
