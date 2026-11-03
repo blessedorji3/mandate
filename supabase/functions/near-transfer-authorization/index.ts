@@ -814,8 +814,10 @@ export async function handleRequest(req: Request) {
         reason,
         message: outcome === "BLOCK"
           ? "The action is blocked by owner policy or counterparty risk."
-          : outcome === "REQUIRE_APPROVAL"
-            ? "Owner review or confirmation is required before this action can proceed."
+          : riskOutcome === "WARN"
+            ? "Counterparty risk warning: evidence is incomplete or concerning. Wallet execution is paused pending risk review."
+            : outcome === "REQUIRE_APPROVAL"
+              ? "Owner confirmation is required before this action can proceed."
             : policyDecision.message,
       };
       const proposalWithRisk = { ...proposal, counterpartyRisk: riskAssessment.decision };
