@@ -324,7 +324,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       {accountId && walletRegistered && (
         <div className="near-transfer-box">
           <div>
-            <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
+            <strong>{proposalId ? "Proposal-bound Agent Chat transfer" : "Wallet execution locked"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
           <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || !proposalId || Boolean(txHash) || authorizationConsumed}>
@@ -347,7 +347,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       {error && !accountId && <p className="near-wallet-error" role="alert">{error}</p>}
       <div className="near-wallet-boundary">
         <strong>Security boundary</strong>
-        <span>MANDATE requires a registered owner wallet, verifies its NEP-413 full-access signature, re-checks policy and consumes a short-lived one-time authorization before requesting the transaction. Your wallet still requires your explicit approval. Never enter a recovery phrase or private key into MANDATE.</span>
+        <span>MANDATE requires an inspected proposal with counterparty risk ALLOW, a registered owner wallet, a verified NEP-413 full-access signature, fresh policy and risk checks, and a proposal-bound one-time authorization before requesting the transaction. Your wallet still requires your explicit approval. Never enter a recovery phrase or private key into MANDATE.</span>
       </div>
     </section>
   );
