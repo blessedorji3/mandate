@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
-import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 import { inspectRecoveryWalletResponse, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
 
 type HistoricalWallet = { accountId: string; revoked: boolean };
