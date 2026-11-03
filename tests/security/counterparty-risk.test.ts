@@ -14,6 +14,7 @@ const complete = {
     { name: "recent_activity", status: "verified" as const, observedAt: now, source: "NEAR indexer", summary: "Recent activity history verified." },
     { name: "account_type", status: "verified" as const, observedAt: now, source: "NEAR RPC", summary: "Account type verified." },
     { name: "previous_mandate_interactions", status: "verified" as const, observedAt: now, source: "MANDATE receipts", summary: "Prior MANDATE interaction count verified." },
+    { name: "shared_blocklist_lookup", status: "verified" as const, observedAt: now, source: "MANDATE blocklist", summary: "Shared blocklist lookup completed." },
   ],
 };
 
