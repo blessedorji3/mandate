@@ -20,3 +20,14 @@
 
 ## Integration status
 This change adds a pure evaluator, tests, private storage schema, and this design note. It does not yet wire RPC/indexer ingestion, reviewer workflow, API integration, or signer-side enforcement. It must not be advertised as active production protection until those are implemented and independently tested.
+
+
+## Read-only NEAR Testnet collector
+
+`src/security/near-counterparty-evidence.ts` currently performs only:
+- JSON-RPC `status`, requiring the returned chain ID to be exactly `testnet`.
+- JSON-RPC `query/view_account` at finality `final`, to inspect current account state and code hash.
+
+It never calls transaction submission methods and never requests wallet credentials. The collector returns `PARTIAL` when current state is available and explicitly marks account age, recent activity, prior MANDATE interactions, and contract code-change history as unavailable. RPC/network failures return `UNAVAILABLE`. Neither result is sufficient for ALLOW; the risk evaluator must remain WARN until the required historical and receipt evidence is integrated.
+
+The collector uses a fixed Testnet RPC endpoint and an eight-second abort timeout. It is not yet called by `agent-inspect`, has no Mainnet mode, and is not a production control.
