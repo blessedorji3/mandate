@@ -21,6 +21,9 @@ describe("evaluateCounterpartyRisk", () => {
   it("allows only when every required signal is present, verified and fresh", () => {
     expect(evaluateCounterpartyRisk(complete).outcome).toBe("ALLOW");
   });
+  it("warns on account IDs shorter than the NEAR minimum", () => {
+    expect(evaluateCounterpartyRisk({ ...complete, accountId: "a" }).outcome).toBe("WARN");
+  });
   it("warns when historical evidence is missing", () => {
     expect(evaluateCounterpartyRisk({ ...complete, accountAgeDays: null }).outcome).toBe("WARN");
   });
