@@ -84,7 +84,7 @@ describe("assessCounterpartyRisk", () => {
     expect(result.collection.history).toBe("UNAVAILABLE");
   });
 
-  it("never treats an unreviewed confirmed row as BLOCK", async () => {
+  it("never treats a confirmed row without reviewer identity as BLOCK", async () => {
     const result = await assessCounterpartyRisk("alice.testnet", deps({
       findBlocklistRecord: async () => ({
         status: "confirmed", evidence_ref: "https://evidence.example/tx/123",
@@ -92,5 +92,15 @@ describe("assessCounterpartyRisk", () => {
       }),
     }));
     expect(result.decision.outcome).toBe("WARN");
+  });
+
+  it("does not trust evidence returned for a different account", async () => {
+    const result = await assessCounterpartyRisk("alice.testnet", deps({
+      currentEvidence: async () => ({ ...current, accountId: "mallory.testnet" }),
+      historicalEvidence: async () => ({ ...history, accountId: "mallory.testnet" }),
+    }));
+    expect(result.decision.outcome).toBe("WARN");
+    expect(result.collection.current).toBe("UNAVAILABLE");
+    expect(result.collection.history).toBe("UNAVAILABLE");
   });
 });
