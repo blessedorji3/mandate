@@ -59,8 +59,12 @@ export async function assessCounterpartyRisk(
     dependencies.countPreviousInteractions(accountId),
   ]);
 
-  if (currentResult.status === "fulfilled") current = currentResult.value;
-  if (historyResult.status === "fulfilled") history = historyResult.value;
+  if (currentResult.status === "fulfilled" &&
+      currentResult.value.accountId === accountId &&
+      currentResult.value.network === "testnet") current = currentResult.value;
+  if (historyResult.status === "fulfilled" &&
+      historyResult.value.accountId === accountId &&
+      historyResult.value.network === "testnet") history = historyResult.value;
   if (blocklistResult.status === "fulfilled") blocklistRow = blocklistResult.value;
   else blocklistLookupFailed = true;
   if (interactionResult.status === "fulfilled" &&
@@ -100,12 +104,16 @@ export async function assessCounterpartyRisk(
 
   const isContract = current?.status === "PARTIAL" ? current.isContract : null;
   const codeChangedRecently = null;
-  const blocklist: BlocklistEvidence | null = blocklistRow
+  const reviewedBlocklistRow = blocklistRow?.status === "confirmed" &&
+    (!blocklistRow.reviewer_owner_id || !blocklistRow.reviewed_at)
+      ? { ...blocklistRow, status: "pending" as const }
+      : blocklistRow;
+  const blocklist: BlocklistEvidence | null = reviewedBlocklistRow
     ? {
-        status: blocklistRow.status,
-        evidenceRef: blocklistRow.evidence_ref,
-        reason: blocklistRow.reason,
-        ...(blocklistRow.reviewed_at ? { reviewedAt: blocklistRow.reviewed_at } : {}),
+        status: reviewedBlocklistRow.status,
+        evidenceRef: reviewedBlocklistRow.evidence_ref,
+        reason: reviewedBlocklistRow.reason,
+        ...(reviewedBlocklistRow.reviewed_at ? { reviewedAt: reviewedBlocklistRow.reviewed_at } : {}),
       }
     : null;
 
