@@ -67,6 +67,27 @@ describe("collectAndEvaluateNearTestnetCounterparty", () => {
     expect(result.decision.reasons.some((reason) => reason.includes("Historical contract code changes"))).toBe(true);
   });
 
+  it("can ALLOW only when all required evidence and blocklist lookup are verified", async () => {
+    const result = await collectAndEvaluateNearTestnetCounterparty(account, {
+      fetchImpl: makeFetch({ createAccount: true }) as typeof fetch,
+      now: fixedNow,
+      previousInteractions: 0,
+      blocklistLookupStatus: "verified",
+    });
+    expect(result.decision.outcome).toBe("ALLOW");
+    expect(result.status).toBe("COMPLETE");
+  });
+
+  it("warns when blocklist lookup completeness is unavailable", async () => {
+    const result = await collectAndEvaluateNearTestnetCounterparty(account, {
+      fetchImpl: makeFetch({ createAccount: true }) as typeof fetch,
+      now: fixedNow,
+      previousInteractions: 0,
+      blocklistLookupStatus: "unavailable",
+    });
+    expect(result.decision.outcome).toBe("WARN");
+  });
+
   it("allows a confirmed reviewed blocklist record to force BLOCK", async () => {
     const result = await collectAndEvaluateNearTestnetCounterparty(account, {
       fetchImpl: makeFetch() as typeof fetch,
