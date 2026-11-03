@@ -78,12 +78,18 @@ function borshString(value: string) {
   const bytes = encoder.encode(value);
   return concat(u32(bytes.length), bytes);
 }
-function nep413Bytes(message: string, nonce: Uint8Array, recipient: string) {
+function nep413Bytes(message: string, nonce: Uint8Array, recipient: string, callbackUrl?: string) {
   if (nonce.length !== 32) throw new Error("NEP-413 nonce must be 32 bytes");
+  if (callbackUrl !== undefined && (!/^https:\/\//.test(callbackUrl) || callbackUrl.length > 2048)) throw new Error("Invalid NEP-413 callback URL");
   const prefix = new Uint8Array(4);
   new DataView(prefix.buffer).setUint32(0, 0x80000000 + 413, true);
-  // callback_url is None; Borsh Option uses a single zero byte.
-  return concat(prefix, borshString(message), nonce, borshString(recipient), new Uint8Array([0]));
+  const callback = callbackUrl === undefined ? new Uint8Array([0]) : concat(new Uint8Array([1]), borshString(callbackUrl));
+  return concat(prefix, borshString(message), nonce, borshString(recipient), callback);
+}
+function trustedCallbackUrl(req: Request): string {
+  const origin = req.headers.get("origin") ?? "";
+  if (!ALLOWED_ORIGINS.has(origin)) throw new Error("A trusted MANDATE application origin is required.");
+  return origin;
 }
 async function sha256(bytes: Uint8Array) {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
@@ -367,7 +373,7 @@ export async function handleRequest(req: Request) {
       if (error) return reply({ error: error.message }, 409);
       return reply({
         challengeId, requestId, action, accountId, publicKey,
-        nonceHex, message, recipient: APP_RECIPIENT, expiresInSeconds: 300,
+        nonceHex, message, recipient: APP_RECIPIENT, callbackUrl, expiresInSeconds: 300,
       });
     }
 
@@ -395,7 +401,7 @@ export async function handleRequest(req: Request) {
       if (!fullAccess) return reply({ error: "The signing key is no longer an active FullAccess key." }, 403);
       const valid = await verifyNep413(
         challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
-        challenge.public_key, signedMessage.signature,
+        challenge.public_key, signedMessage.signature, challenge.callback_url,
       );
       if (!valid) return reply({ error: "The recovery wallet signature is invalid." }, 403);
 
@@ -473,6 +479,7 @@ export async function handleRequest(req: Request) {
       const fullAccess = findActiveFullAccessKey(accessKeys, wallet.public_key);
       if (!fullAccess) return reply({ error: "The active registered wallet key is no longer an active FullAccess key." }, 403);
 
+      const callbackUrl = trustedCallbackUrl(req);
       const challengeId = crypto.randomUUID();
       const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
       const message = [
@@ -486,7 +493,7 @@ export async function handleRequest(req: Request) {
       ].join("\n");
       const { error } = await admin.rpc("create_near_wallet_recovery_reset_challenge_v1", {
         p_owner_id: user.id, p_id: challengeId, p_account_id: accountId,
-        p_public_key: wallet.public_key, p_nonce_hex: nonceHex, p_message: message,
+        p_public_key: wallet.public_key, p_nonce_hex: nonceHex, p_message: message, p_callback_url: callbackUrl,
       });
       if (error) return reply({ error: error.message || "Could not create recovery-code reset challenge." }, 409);
       return reply({
