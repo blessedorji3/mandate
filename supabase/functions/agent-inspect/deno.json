@@ -1,5 +1,17 @@
 {
+  "unstable": [
+    "sloppy-imports"
+  ],
   "imports": {
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.57.0"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": [
+      "deno.window",
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ]
   }
 }
