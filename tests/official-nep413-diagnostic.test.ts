@@ -19,13 +19,14 @@ const walletProvider = {
   cachedExecutorCleared: true,
 };
 
-async function makeSignedMessage(messageValue = message) {
+async function makeSignedMessage(messageValue = message, callbackUrl?: string) {
   const signer = new KeyPairSigner(KeyPairEd25519.fromRandom());
   const publicKey = (await signer.getPublicKey()).toString();
   const signedMessage = await signer.signNep413Message(accountId, {
     message: messageValue,
     recipient,
     nonce,
+    ...(callbackUrl === undefined ? {} : { callbackUrl }),
   });
   return { publicKey, signedMessage };
 }
@@ -44,7 +45,6 @@ describe("official NEP-413 wallet diagnostic", () => {
     });
 
     expect(result.messageAsciiOnly).toBe(true);
-    expect(result.callbackUrlIncluded).toBe(false);
     expect(result.nonceLengthValid).toBe(true);
     expect(result.signerAccountMatchesRegisteredWallet).toBe(true);
     expect(result.signerPublicKeyMatchesRegisteredWallet).toBe(true);
@@ -55,6 +55,25 @@ describe("official NEP-413 wallet diagnostic", () => {
     expect(result.recoveryCredentialChanged).toBe(false);
     expect(result.walletLinksChanged).toBe(false);
     expect(result.fundsMoved).toBe(false);
+  });
+
+  it("identifies an explicit callback signature separately from Option::None", async () => {
+    const callbackUrl = "https://mandate-snowy.vercel.app/wallet";
+    const { publicKey, signedMessage } = await makeSignedMessage(message, callbackUrl);
+    const result = await inspectOfficialNep413Response({
+      expectedAccountId: accountId,
+      expectedPublicKey: publicKey,
+      message,
+      recipient,
+      nonce,
+      walletResponse: signedMessage,
+      callbackUrl,
+      walletProvider,
+    });
+
+    expect(result.callbackVariantVerification.challengeCallbackUrl).toBe("valid");
+    expect(result.callbackVariantVerification.none).toBe("invalid");
+    expect(result.officialNep413Verification).toBe("valid");
   });
 
   it("rejects a signature when the exact signed message is changed", async () => {
@@ -99,9 +118,10 @@ describe("official NEP-413 wallet diagnostic", () => {
     expect(keyMismatch.officialNep413Verification).toBe("not-run");
   });
 
-  it("verifies a valid NEP-413 signature for a non-ASCII UTF-8 message", async () => {
+  it("verifies a non-ASCII UTF-8 message with an explicit callback", async () => {
     const unicodeMessage = "MANDATE café — recovery reset diagnostic";
-    const { publicKey, signedMessage } = await makeSignedMessage(unicodeMessage);
+    const callbackUrl = "https://mandate-snowy.vercel.app/wallet";
+    const { publicKey, signedMessage } = await makeSignedMessage(unicodeMessage, callbackUrl);
     const result = await inspectOfficialNep413Response({
       expectedAccountId: accountId,
       expectedPublicKey: publicKey,
@@ -109,12 +129,15 @@ describe("official NEP-413 wallet diagnostic", () => {
       recipient,
       nonce,
       walletResponse: signedMessage,
+      callbackUrl,
       walletProvider,
     });
 
     expect(result.messageAsciiOnly).toBe(false);
     expect(result.nonceLengthValid).toBe(true);
     expect(result.signatureEncodingValid).toBe(true);
+    expect(result.callbackVariantVerification.challengeCallbackUrl).toBe("valid");
+    expect(result.callbackVariantVerification.none).toBe("invalid");
     expect(result.officialNep413Verification).toBe("valid");
-  });;
+  });
 });
