@@ -1,9 +1,14 @@
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 
 export type SafeWalletDiagnostic = {
+  walletProvider: {
+    id: string | null;
+    name: string | null;
+    version: string | null;
+  };
   challengeMessageForwardedUnchanged: boolean;
   challengeRecipientForwardedUnchanged: boolean;
-  challengeCallbackUrlForwardedUnchanged: boolean;
+  callbackUrlSuppliedToConnectorUnchanged: boolean;
   serverExpectedRecipientMatches: boolean;
   nonceLengthBytes: number;
   nonceLengthValid: boolean;
@@ -83,6 +88,7 @@ export async function inspectRecoveryWalletResponse(input: {
   expectedAccountId: string;
   expectedPublicKey: string;
   walletResponse: unknown;
+  walletProvider: SafeWalletDiagnostic["walletProvider"];
 }): Promise<SafeWalletDiagnostic> {
   const raw = input.walletResponse && typeof input.walletResponse === "object"
     ? input.walletResponse as Record<string, unknown> : {};
@@ -149,7 +155,8 @@ export async function inspectRecoveryWalletResponse(input: {
   return {
     challengeMessageForwardedUnchanged: input.walletRequestMessage === input.challengeMessage,
     challengeRecipientForwardedUnchanged: input.walletRequestRecipient === input.challengeRecipient,
-    challengeCallbackUrlForwardedUnchanged: input.walletRequestCallbackUrl === input.challengeCallbackUrl,
+    walletProvider: input.walletProvider,
+    callbackUrlSuppliedToConnectorUnchanged: input.walletRequestCallbackUrl === input.challengeCallbackUrl,
     serverExpectedRecipientMatches: input.challengeRecipient === SERVER_EXPECTED_RECIPIENT,
     nonceLengthBytes: input.nonce.length,
     nonceLengthValid: input.nonce.length === 32,
