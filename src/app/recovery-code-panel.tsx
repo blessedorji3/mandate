@@ -350,6 +350,26 @@ export function RecoveryCodePanel() {
         signerId: selectedWallet,
       };
       const walletSignedMessage = await wallet.signMessage(walletRequest);
+      const officialResult = await inspectOfficialNep413Response({
+        expectedAccountId: challenge.accountId,
+        expectedPublicKey: challenge.publicKey,
+        message: challenge.message,
+        recipient: challenge.recipient,
+        nonce: nonceBytes,
+        walletResponse: walletSignedMessage,
+        walletProvider: {
+          id: typeof wallet.manifest?.id === "string" ? wallet.manifest.id : "meteor-wallet",
+          version: typeof signingManifest.version === "string" ? signingManifest.version : "unknown",
+          executorHost,
+          cachedExecutorCleared,
+        },
+      });
+      setOfficialDiagnostic(officialResult);
+      if (officialResult.officialNep413Verification !== "valid") {
+        throw new Error(
+          "The official NEAR verifier did not accept the exact recovery-reset message. The signed response was not submitted; your existing recovery code remains unchanged.",
+        );
+      }
       const diagnostic = await inspectRecoveryWalletResponse({
         walletProvider,
         challengeMessage: challenge.message,
@@ -487,8 +507,12 @@ export function RecoveryCodePanel() {
         <div className="near-transfer-box" role="status" aria-live="polite">
           <strong>Official NEAR NEP-413 diagnostic (non-mutating)</strong>
           <p>{officialDiagnostic.officialNep413Verification === "valid"
-            ? "The official NEAR verifier accepted the signed ASCII challenge. The browser did not check on-chain key permission; Supabase remains responsible for that check during recovery."
-            : "The official NEAR verifier did not accept the signature, or an identity/format check failed. No recovery reset was attempted."}</p>
+            ? diagnosticSubmission === "verified"
+              ? "The official NEAR verifier accepted the exact recovery-reset message, and Supabase confirmed the one-time credential rotation."
+              : diagnosticSubmission === "server-error"
+                ? "The official NEAR verifier accepted the exact recovery-reset message, but Supabase did not confirm the reset. Do not assume the recovery code changed."
+                : "The official NEAR verifier accepted the exact recovery-reset message. Supabase still performs the authoritative active FullAccess check and one-time credential rotation."
+            : "The official NEAR verifier did not accept the exact recovery-reset message, or an identity/format check failed. The response was not submitted."}</p>
           <pre>{JSON.stringify(officialDiagnostic, null, 2)}</pre>
         </div>
       )}
