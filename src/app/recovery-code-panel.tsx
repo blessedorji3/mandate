@@ -357,6 +357,7 @@ export function RecoveryCodePanel() {
         recipient: challenge.recipient,
         nonce: nonceBytes,
         walletResponse: walletSignedMessage,
+        callbackUrl: challenge.callbackUrl,
         walletProvider: {
           id: typeof wallet.manifest?.id === "string" ? wallet.manifest.id : "meteor-wallet",
           version: typeof signingManifest.version === "string" ? signingManifest.version : "unknown",
