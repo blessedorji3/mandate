@@ -106,9 +106,12 @@ function validSignal(value: unknown): value is RiskSignal {
   if (typeof value.value === "string" && value.value.length > MAX_TEXT) return false;
   return true;
 }
+function validTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 64 && Number.isFinite(Date.parse(value));
+}
 function validEvidenceRef(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2_048) return false;
-  if (/^sha256:[a-f0-9]{64}$/i.test(value)) return true;
+  if (isBase58Hash32(value) || /^sha256:[a-f0-9]{64}$/i.test(value)) return true;
   try { const url = new URL(value); return url.protocol === "https:" && Boolean(url.hostname); }
   catch { return false; }
 }
@@ -120,7 +123,7 @@ function validBlocklistShape(value: unknown): value is BlocklistEvidence {
   if (!isRecord(value) || !["confirmed", "pending", "rejected"].includes(String(value.status)) ||
       !validEvidenceRef(value.evidenceRef) || !validText(value.reason)) return false;
   if (value.reviewerId !== undefined && value.reviewerId !== null && !isUuid(value.reviewerId)) return false;
-  if (value.reviewedAt !== undefined && value.reviewedAt !== null && !isIsoUtc(value.reviewedAt)) return false;
+  if (value.reviewedAt !== undefined && value.reviewedAt !== null && !validTimestamp(value.reviewedAt)) return false;
   return true;
 }
 function fallback(accountId: string, evaluatedAt: string, reason: string): CounterpartyRiskDecision {
@@ -238,7 +241,7 @@ export function evaluateCounterpartyRisk(
   if (data.blocklist?.status === "confirmed") {
     const completeReview = validEvidenceRef(data.blocklist.evidenceRef) &&
       validText(data.blocklist.reason) && isUuid(data.blocklist.reviewerId) &&
-      isIsoUtc(data.blocklist.reviewedAt) &&
+      validTimestamp(data.blocklist.reviewedAt) &&
       Date.parse(data.blocklist.reviewedAt) <= nowMs + MAX_FUTURE_SKEW_MS;
     if (completeReview) block("Counterparty is on the reviewer-attributed MANDATE blocklist: " + data.blocklist.reason);
     else warn("A purported confirmed blocklist record lacks valid evidence, reviewer identity, or review timestamp.");

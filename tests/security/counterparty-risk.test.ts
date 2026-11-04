@@ -111,10 +111,10 @@ describe("evaluateCounterpartyRisk", () => {
       signals,
       blocklist: {
         status: "confirmed",
-        evidenceRef: "sha256:" + "a".repeat(64),
+        evidenceRef: "FDrh13CdfGPXsmwUpZLfkZCoXWfpQmaFGj4zYWc1qfh",
         reason: "Reviewed malicious counterparty",
         reviewerId,
-        reviewedAt: at,
+        reviewedAt: "2026-11-03T10:00:00+00:00",
       },
     }), fixedNow);
     expect(result.outcome).toBe("BLOCK");
