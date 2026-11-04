@@ -486,6 +486,142 @@ begin
 end;
 $$;
 
+-- A successful 24-hour recovery replaces the whole MANDATE wallet set.
+-- Record the batch of revocations and the new replacement in the wallet event log.
+create or replace function public.finalize_near_wallet_recovery_v1(
+  p_owner_id uuid, p_id uuid, p_new_code_hash_hex text
+) returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, public, mandate_private
+as $
+declare
+  c mandate_private.near_wallet_recovery_action_challenges%rowtype;
+  r mandate_private.near_wallet_recovery_requests%rowtype;
+begin
+  if p_owner_id is null or p_new_code_hash_hex !~ '^[0-9a-f]{64}
+revoke all on function public.create_near_wallet_registration_challenge_v1(uuid,uuid,text,text,text) from public, anon, authenticated;
+revoke all on function public.complete_near_wallet_registration_v1(uuid,uuid,text) from public, anon, authenticated;
+revoke all on function public.list_near_owner_wallets_v1(uuid) from public, anon, authenticated;
+revoke all on function public.create_near_wallet_revoke_challenge_v1(uuid,uuid,text,text,text,text,text) from public, anon, authenticated;
+revoke all on function public.get_near_wallet_revoke_challenge_v1(uuid,uuid) from public, anon, authenticated;
+revoke all on function public.complete_near_wallet_revoke_v1(uuid,uuid) from public, anon, authenticated;
+revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public, anon, authenticated;
+revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public, anon, authenticated;
+grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
+
+grant execute on function public.create_near_wallet_registration_challenge_v1(uuid,uuid,text,text,text) to service_role;
+grant execute on function public.complete_near_wallet_registration_v1(uuid,uuid,text) to service_role;
+grant execute on function public.list_near_owner_wallets_v1(uuid) to service_role;
+grant execute on function public.create_near_wallet_revoke_challenge_v1(uuid,uuid,text,text,text,text,text) to service_role;
+grant execute on function public.get_near_wallet_revoke_challenge_v1(uuid,uuid) to service_role;
+grant execute on function public.complete_near_wallet_revoke_v1(uuid,uuid) to service_role;
+grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
+
+commit;
+ then
+    return false;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text, 0));
+
+  select * into c
+  from mandate_private.near_wallet_recovery_action_challenges
+  where id = p_id and owner_id = p_owner_id
+    and action = 'finalize' and consumed_at is null and expires_at > now()
+  for update;
+  if not found then
+    return false;
+  end if;
+
+  select * into r
+  from mandate_private.near_wallet_recovery_requests
+  where id = c.request_id and owner_id = p_owner_id and status = 'pending'
+  for update;
+  if not found or r.available_at > now()
+     or r.new_account_id <> c.account_id or r.new_public_key <> c.public_key then
+    return false;
+  end if;
+
+  -- Preserve the lifetime owner binding, including revoked history.
+  if exists (
+    select 1 from mandate_private.near_owner_wallets
+    where account_id = r.new_account_id and owner_id <> p_owner_id
+  ) then
+    raise exception 'Replacement NEAR wallet belongs to another MANDATE account';
+  end if;
+
+  if exists (
+    select 1 from mandate_private.near_owner_wallets
+    where owner_id = p_owner_id and account_id = r.new_account_id and revoked_at is null
+  ) then
+    raise exception 'Replacement NEAR wallet is already active on this MANDATE account';
+  end if;
+
+  insert into mandate_private.near_wallet_events(owner_id, account_id, event_type, actor_account_id)
+  select p_owner_id, w.account_id, 'revoked', r.new_account_id
+  from mandate_private.near_owner_wallets w
+  where w.owner_id = p_owner_id and w.revoked_at is null;
+
+  update mandate_private.near_owner_wallets
+  set revoked_at = now()
+  where owner_id = p_owner_id and revoked_at is null;
+
+  insert into mandate_private.near_owner_wallets
+    (owner_id, account_id, public_key, verified_at, revoked_at)
+  values
+    (p_owner_id, r.new_account_id, r.new_public_key, now(), null)
+  on conflict (owner_id, account_id) do update
+    set public_key = excluded.public_key,
+        verified_at = now(),
+        revoked_at = null;
+
+  insert into mandate_private.near_wallet_events(owner_id, account_id, event_type, actor_account_id)
+  values (p_owner_id, r.new_account_id, 'recovered', r.new_account_id);
+
+  update mandate_private.near_wallet_recovery_requests
+  set status = 'completed', completed_at = now()
+  where id = r.id and status = 'pending';
+  if not found then
+    raise exception 'Wallet recovery request changed during finalization';
+  end if;
+
+  insert into mandate_private.near_wallet_recovery_events(owner_id, request_id, event_type, account_id)
+  values (p_owner_id, r.id, 'completed', r.new_account_id);
+
+  update mandate_private.near_wallet_recovery_action_challenges
+  set consumed_at = now()
+  where owner_id = p_owner_id and consumed_at is null;
+
+  update mandate_private.near_wallet_revocation_challenges
+  set consumed_at = now()
+  where owner_id = p_owner_id and consumed_at is null;
+
+  update mandate_private.near_wallet_recovery_credentials
+  set code_hash = decode(p_new_code_hash_hex, 'hex'),
+      consumed_at = null,
+      rotated_at = now()
+  where owner_id = p_owner_id and consumed_at is null;
+  if not found then
+    raise exception 'Active recovery credential disappeared during finalization';
+  end if;
+
+  update mandate_private.near_wallet_registration_challenges
+  set consumed_at = now()
+  where owner_id = p_owner_id and consumed_at is null;
+
+  update mandate_private.near_transfer_challenges
+  set consumed_at = now()
+  where owner_id = p_owner_id and consumed_at is null;
+
+  update mandate_private.near_transfer_receipts
+  set consumed_at = now()
+  where owner_id = p_owner_id and consumed_at is null;
+
+  return true;
+end;
+$;
+
 -- These routines are called only by the authenticated Edge Function with service role.
 revoke all on function public.create_near_wallet_registration_challenge_v1(uuid,uuid,text,text,text) from public, anon, authenticated;
 revoke all on function public.complete_near_wallet_registration_v1(uuid,uuid,text) from public, anon, authenticated;
