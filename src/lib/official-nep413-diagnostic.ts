@@ -1,5 +1,5 @@
 import { verifyMessage } from "near-api-js/nep413";
-import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
+import { normalizeNearSignedMessage } from "./near-signed-message";
 
 export type OfficialNep413Diagnostic = {
   walletProvider: {
