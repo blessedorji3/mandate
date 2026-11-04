@@ -508,32 +508,12 @@ create or replace function public.finalize_near_wallet_recovery_v1(
 language plpgsql
 security definer
 set search_path = pg_catalog, public, mandate_private
-as $
+as $fn$
 declare
   c mandate_private.near_wallet_recovery_action_challenges%rowtype;
   r mandate_private.near_wallet_recovery_requests%rowtype;
 begin
-  if p_owner_id is null or p_new_code_hash_hex !~ '^[0-9a-f]{64}
-revoke all on function public.create_near_wallet_registration_challenge_v1(uuid,uuid,text,text,text) from public, anon, authenticated;
-revoke all on function public.complete_near_wallet_registration_v1(uuid,uuid,text) from public, anon, authenticated;
-revoke all on function public.list_near_owner_wallets_v1(uuid) from public, anon, authenticated;
-revoke all on function public.create_near_wallet_revoke_challenge_v1(uuid,uuid,text,text,text,text,text) from public, anon, authenticated;
-revoke all on function public.get_near_wallet_revoke_challenge_v1(uuid,uuid) from public, anon, authenticated;
-revoke all on function public.complete_near_wallet_revoke_v1(uuid,uuid) from public, anon, authenticated;
-revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public, anon, authenticated;
-revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public, anon, authenticated;
-grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
-
-grant execute on function public.create_near_wallet_registration_challenge_v1(uuid,uuid,text,text,text) to service_role;
-grant execute on function public.complete_near_wallet_registration_v1(uuid,uuid,text) to service_role;
-grant execute on function public.list_near_owner_wallets_v1(uuid) to service_role;
-grant execute on function public.create_near_wallet_revoke_challenge_v1(uuid,uuid,text,text,text,text,text) to service_role;
-grant execute on function public.get_near_wallet_revoke_challenge_v1(uuid,uuid) to service_role;
-grant execute on function public.complete_near_wallet_revoke_v1(uuid,uuid) to service_role;
-grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
-
-commit;
- then
+  if p_owner_id is null or p_new_code_hash_hex !~ '^[0-9a-f]{64}$' then
     return false;
   end if;
 
@@ -634,7 +614,7 @@ commit;
 
   return true;
 end;
-$;
+$fn$;
 
 -- These routines are called only by the authenticated Edge Function with service role.
 revoke all on function public.create_near_wallet_registration_challenge_v1(uuid,uuid,text,text,text) from public, anon, authenticated;
@@ -644,6 +624,7 @@ revoke all on function public.create_near_wallet_revoke_challenge_v1(uuid,uuid,t
 revoke all on function public.get_near_wallet_revoke_challenge_v1(uuid,uuid) from public, anon, authenticated;
 revoke all on function public.complete_near_wallet_revoke_v1(uuid,uuid) from public, anon, authenticated;
 revoke all on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) from public, anon, authenticated;
+revoke all on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) from public, anon, authenticated;
 
 grant execute on function public.create_near_wallet_registration_challenge_v1(uuid,uuid,text,text,text) to service_role;
 grant execute on function public.complete_near_wallet_registration_v1(uuid,uuid,text) to service_role;
@@ -652,5 +633,6 @@ grant execute on function public.create_near_wallet_revoke_challenge_v1(uuid,uui
 grant execute on function public.get_near_wallet_revoke_challenge_v1(uuid,uuid) to service_role;
 grant execute on function public.complete_near_wallet_revoke_v1(uuid,uuid) to service_role;
 grant execute on function public.create_near_wallet_recovery_action_challenge_v1(uuid,uuid,uuid,text,text,text,text,text) to service_role;
+grant execute on function public.finalize_near_wallet_recovery_v1(uuid,uuid,text) to service_role;
 
 commit;
