@@ -7,6 +7,7 @@ import {
   recoveryChallengeMatches,
   recoveryTestUtils,
   verifyNep413,
+  verifyNep413WithOptionalCallback,
 } from "./recovery-security.ts";
 
 const recipient = "mandate-snowy.vercel.app";
