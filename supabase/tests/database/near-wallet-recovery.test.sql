@@ -198,9 +198,9 @@ select is(
   'transaction binding is blocked during pending recovery'
 );
 select ok(
-  (select consumed_at is not null from mandate_private.near_transfer_receipts
+  (select consumed_at is not null and invalidated_at is not null from mandate_private.near_transfer_receipts
    where id='50000000-0000-4000-8000-000000000001'),
-  'recovery start invalidates outstanding transfer receipts'
+  'recovery start invalidates unbound transfer receipts, including previously consumed grants'
 );
 select throws_ok(
   $$select public.create_near_wallet_recovery_action_challenge_v1(
@@ -676,6 +676,36 @@ select throws_ok(
   'another MANDATE owner cannot start linking a wallet already bound to owner A'
 );
 
+-- Seed both an unused receipt and a consumed-but-unbound receipt for the wallet
+-- that will be revoked. Both must become unusable after MANDATE revocation.
+insert into mandate_private.near_transfer_receipts (
+  id, owner_id, token_hash, signer_account_id, policy_id, policy_version,
+  proposal_id, network, receiver_id, asset, amount_atomic, action_type,
+  expires_at, consumed_at, action_digest
+) values
+(
+  '50000000-0000-4000-8000-000000000011',
+  '10000000-0000-4000-8000-000000000001',
+  decode(repeat('8',64),'hex'),
+  'new-wallet-a.testnet',
+  '60000000-0000-4000-8000-000000000001',
+  1, 'multiwallet-unused-receipt',
+  'testnet','confirmwithmandate.testnet','NEAR',
+  '1000000000000000000000','transfer',
+  now()+interval '2 minutes', null, repeat('8',64)
+),
+(
+  '50000000-0000-4000-8000-000000000012',
+  '10000000-0000-4000-8000-000000000001',
+  decode(repeat('9',64),'hex'),
+  'new-wallet-a.testnet',
+  '60000000-0000-4000-8000-000000000001',
+  1, 'multiwallet-consumed-unbound-receipt',
+  'testnet','confirmwithmandate.testnet','NEAR',
+  '1000000000000000000000','transfer',
+  now()+interval '2 minutes', now(), repeat('9',64)
+);
+
 -- Revoking one wallet requires a different active wallet and leaves the other intact.
 select is(
   public.create_near_wallet_revoke_challenge_v1(
@@ -717,6 +747,16 @@ select ok(
    where owner_id='10000000-0000-4000-8000-000000000001'
      and account_id='second-wallet-a.testnet'),
   'revocation preserves the other active wallet on the same MANDATE account'
+);
+select ok(
+  (select invalidated_at is not null and consumed_at is not null
+   from mandate_private.near_transfer_receipts
+   where id='50000000-0000-4000-8000-000000000011')
+  and
+  (select invalidated_at is not null and consumed_at is not null and transaction_hash is null
+   from mandate_private.near_transfer_receipts
+   where id='50000000-0000-4000-8000-000000000012'),
+  'revoking a wallet invalidates unused and consumed-but-unbound transfer receipts'
 );
 select is(
   public.complete_near_wallet_revoke_v1(
