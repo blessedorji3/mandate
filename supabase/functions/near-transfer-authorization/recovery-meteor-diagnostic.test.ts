@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { normalizeNearSignedMessage } from "../../../src/lib/near-signed-message.ts";
-import { verifyNep413, recoveryTestUtils } from "./recovery-security.ts";
+import { verifyNep413, verifyNep413WithOptionalCallback, recoveryTestUtils } from "./recovery-security.ts";
 
 // Test-only Meteor contract harness. It uses the same signMessage inputs and
 // NEP-413 envelope shape as the Meteor executor; it never connects to a wallet.
@@ -135,6 +135,69 @@ Deno.test("recovery reset: callback URL option is explicitly None; a Some payloa
   assertEquals(await crypto.subtle.verify(
     { name: "Ed25519" }, someKey, signature.slice().buffer as ArrayBuffer, someDigest.slice().buffer as ArrayBuffer,
   ), false, "signature over callbackUrl=None must not verify against callbackUrl=Some");
+});
+
+Deno.test("recovery reset: server accepts both valid NEP-413 callback option forms", async () => {
+  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
+  const rawPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+  const publicKey = `ed25519:${recoveryTestUtils.base58Encode(rawPublicKey)}`;
+  const nonce = new Uint8Array(32).fill(11);
+  const challengeMessage = message.replace("__PUBLIC_KEY__", publicKey);
+  const callbackUrl = "https://mandate-snowy.vercel.app/wallet";
+
+  const nonePayload = meteorNep413Payload(challengeMessage, nonce, recipient);
+  const noneDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", nonePayload.slice().buffer as ArrayBuffer));
+  const noneSignature = new Uint8Array(await crypto.subtle.sign(
+    { name: "Ed25519" }, pair.privateKey, noneDigest.slice().buffer as ArrayBuffer,
+  ));
+  const noneSignatureBase64 = base64(noneSignature);
+
+  assertEquals(
+    await verifyNep413WithOptionalCallback(challengeMessage, nonce, recipient, publicKey, noneSignatureBase64, callbackUrl),
+    true,
+    "Meteor's callbackUrl=None signature should verify against the same stored challenge",
+  );
+  assertEquals(
+    await verifyNep413(challengeMessage, nonce, recipient, publicKey, noneSignatureBase64, callbackUrl),
+    false,
+    "a None signature must not be mistaken for a Some(callbackUrl) signature",
+  );
+
+  const somePayload = concat(
+    new Uint8Array([0x9d, 0x01, 0x00, 0x80]),
+    borshString(challengeMessage),
+    nonce,
+    borshString(recipient),
+    new Uint8Array([1]),
+    borshString(callbackUrl),
+  );
+  const someDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", somePayload.slice().buffer as ArrayBuffer));
+  const someSignature = new Uint8Array(await crypto.subtle.sign(
+    { name: "Ed25519" }, pair.privateKey, someDigest.slice().buffer as ArrayBuffer,
+  ));
+  const someSignatureBase64 = base64(someSignature);
+
+  assertEquals(
+    await verifyNep413WithOptionalCallback(challengeMessage, nonce, recipient, publicKey, someSignatureBase64, callbackUrl),
+    true,
+    "a Some(callbackUrl) signature remains accepted",
+  );
+  assertEquals(
+    await verifyNep413WithOptionalCallback(challengeMessage + " changed", nonce, recipient, publicKey, noneSignatureBase64, callbackUrl),
+    false,
+    "the exact message remains bound to the signature",
+  );
+  const alteredNonce = nonce.slice(); alteredNonce[0] ^= 1;
+  assertEquals(
+    await verifyNep413WithOptionalCallback(challengeMessage, alteredNonce, recipient, publicKey, noneSignatureBase64, callbackUrl),
+    false,
+    "the exact challenge nonce remains bound to the signature",
+  );
+  assertEquals(
+    await verifyNep413WithOptionalCallback(challengeMessage, nonce, "wrong-recipient.example", publicKey, noneSignatureBase64, callbackUrl),
+    false,
+    "the relying-party recipient remains bound to the signature",
+  );
 });
 
 Deno.test("recovery reset: explicit trusted callback URL is part of the NEP-413 signature", async () => {
