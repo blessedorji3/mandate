@@ -191,6 +191,11 @@ export function RecoveryCodePanel() {
       }
       const wallet = await connector.wallet();
       if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
+      const walletProvider = {
+        id: typeof wallet.manifest?.id === "string" ? wallet.manifest.id : null,
+        name: typeof wallet.manifest?.name === "string" ? wallet.manifest.name : null,
+        version: typeof wallet.manifest?.version === "string" ? wallet.manifest.version : null,
+      };
       setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
       const nonceBytes = fromHex(challenge.nonceHex);
       const walletRequest = {
@@ -203,6 +208,7 @@ export function RecoveryCodePanel() {
       };
       const walletSignedMessage = await wallet.signMessage(walletRequest);
       const diagnostic = await inspectRecoveryWalletResponse({
+        walletProvider,
         challengeMessage: challenge.message,
         challengeRecipient: challenge.recipient,
         challengeCallbackUrl: challenge.callbackUrl,
@@ -287,7 +293,7 @@ export function RecoveryCodePanel() {
       )}
       {safeDiagnostic && (
         <div className="near-transfer-box" role="status" aria-live="polite">
-          <strong>Safe Meteor signing diagnostic</strong>
+          <strong>Safe wallet signing diagnostic</strong>
           <p>Diagnostic-only run: the signed response was not submitted to the reset endpoint.</p>
           <pre>{JSON.stringify(safeDiagnostic, null, 2)}</pre>
         </div>
