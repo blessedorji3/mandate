@@ -1,21 +1,8 @@
+import { PublicKey } from "@near-js/crypto";
 const encoder = new TextEncoder();
 
 function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer as ArrayBuffer;
-}
-
-function base58Decode(value: string): Uint8Array {
-  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  let n = 0n;
-  for (const char of value) {
-    const digit = alphabet.indexOf(char);
-    if (digit < 0) throw new Error("Invalid base58");
-    n = n * 58n + BigInt(digit);
-  }
-  const bytes: number[] = [];
-  while (n > 0n) { bytes.unshift(Number(n & 255n)); n >>= 8n; }
-  for (let i = 0; i < value.length && value[i] === "1"; i++) bytes.unshift(0);
-  return Uint8Array.from(bytes);
 }
 
 function base58Encode(bytes: Uint8Array): string {
@@ -87,14 +74,14 @@ export async function verifyNep413(
   callbackUrl?: string,
 ): Promise<boolean> {
   try {
-    const [keyType, encodedKey, extra] = publicKey.split(":");
-    if (keyType !== "ed25519" || !encodedKey || extra !== undefined) return false;
-    const key = base58Decode(encodedKey);
+    if (!publicKey.startsWith("ed25519:") || nonce.length !== 32) return false;
+    const key = PublicKey.fromString(publicKey);
     const sig = base64Decode(signature);
-    if (key.length !== 32 || sig.length !== 64 || nonce.length !== 32) return false;
+    if (key.data.length !== 32 || sig.length !== 64) return false;
     const digest = await sha256(nep413Bytes(message, nonce, recipient, callbackUrl));
-    const cryptoKey = await crypto.subtle.importKey("raw", asArrayBuffer(key), { name: "Ed25519" }, false, ["verify"]);
-    return await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, asArrayBuffer(sig), asArrayBuffer(digest));
+    // Use the same NEAR SDK Ed25519 verifier as Meteor/NEAR Connect rather
+    // than WebCrypto, so the reference signing and verification stack agrees.
+    return key.verify(digest, sig);
   } catch {
     // Malformed key/signature encodings are an authentication failure, not a server error.
     return false;
