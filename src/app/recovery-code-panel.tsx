@@ -218,8 +218,8 @@ export function RecoveryCodePanel() {
       await signingConnector.db.removeItem(cacheKey);
       const cachedExecutorCleared = true;
       const connected = await signingConnector.getConnectedWallet();
-      if (connected.accounts[0]?.accountId !== activeWallet) {
-        throw new Error("The freshly loaded connector did not restore your active registered wallet.");
+      if (connected.accounts[0]?.accountId !== selectedWallet) {
+        throw new Error("The freshly loaded connector did not restore your selected active registered wallet.");
       }
       const wallet = connected.wallet;
       if (wallet.manifest?.id !== "meteor-wallet") {
