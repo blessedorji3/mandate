@@ -101,6 +101,29 @@ export async function verifyNep413(
   }
 }
 
+/**
+ * NEP-413 defines callback_url as optional. Some compatible wallets (including
+ * the current Meteor Wallet adapter) sign the Option::None form even when the
+ * caller's connector-level request contains a callback URL.
+ *
+ * Keep the stored trusted callback as the preferred verification form, then
+ * accept the standards-compliant None form. In both cases the signature still
+ * covers the exact challenge message, nonce, relying-party recipient and key.
+ */
+export async function verifyNep413WithOptionalCallback(
+  message: string,
+  nonce: Uint8Array,
+  recipient: string,
+  publicKey: string,
+  signature: string,
+  callbackUrl: string,
+): Promise<boolean> {
+  if (await verifyNep413(message, nonce, recipient, publicKey, signature, callbackUrl)) {
+    return true;
+  }
+  return await verifyNep413(message, nonce, recipient, publicKey, signature);
+}
+
 export function recoveryChallengeMatches(
   challenge: { action: string; account_id: string; public_key: string } | null,
   action: "start" | "finalize",
