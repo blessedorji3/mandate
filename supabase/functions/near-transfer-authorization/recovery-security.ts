@@ -1,4 +1,4 @@
-import { PublicKey } from "@near-js/crypto";
+import { ed25519 } from "npm:@noble/curves@2.2.0/ed25519.js";
 const encoder = new TextEncoder();
 
 function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -20,6 +20,20 @@ function base58Encode(bytes: Uint8Array): string {
     encoded = "1" + encoded;
   }
   return encoded || "1";
+}
+
+function base58Decode(value: string): Uint8Array {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let n = 0n;
+  for (const char of value) {
+    const digit = alphabet.indexOf(char);
+    if (digit < 0) throw new Error("Invalid base58");
+    n = n * 58n + BigInt(digit);
+  }
+  const bytes: number[] = [];
+  while (n > 0n) { bytes.unshift(Number(n & 255n)); n >>= 8n; }
+  for (let i = 0; i < value.length && value[i] === "1"; i++) bytes.unshift(0);
+  return Uint8Array.from(bytes);
 }
 
 function base64Decode(value: string): Uint8Array {
@@ -74,14 +88,14 @@ export async function verifyNep413(
   callbackUrl?: string,
 ): Promise<boolean> {
   try {
-    if (!publicKey.startsWith("ed25519:") || nonce.length !== 32) return false;
-    const key = PublicKey.fromString(publicKey);
+    const [keyType, encodedKey, extra] = publicKey.split(":");
+    if (keyType !== "ed25519" || !encodedKey || extra !== undefined || nonce.length !== 32) return false;
+    const key = base58Decode(encodedKey);
     const sig = base64Decode(signature);
-    if (key.data.length !== 32 || sig.length !== 64) return false;
+    if (key.length !== 32 || sig.length !== 64) return false;
     const digest = await sha256(nep413Bytes(message, nonce, recipient, callbackUrl));
-    // Use the same NEAR SDK Ed25519 verifier as Meteor/NEAR Connect rather
-    // than WebCrypto, so the reference signing and verification stack agrees.
-    return key.verify(digest, sig);
+    // Use the same audited Noble Ed25519 implementation as current NEAR SDK.
+    return ed25519.verify(sig, digest, key);
   } catch {
     // Malformed key/signature encodings are an authentication failure, not a server error.
     return false;

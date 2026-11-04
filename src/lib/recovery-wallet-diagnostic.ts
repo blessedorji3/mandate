@@ -1,4 +1,4 @@
-import { PublicKey } from "@near-js/crypto";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 
 export type SafeWalletDiagnostic = {
@@ -57,6 +57,20 @@ function reconstructServerPayload(message: string, nonce: Uint8Array, recipient:
   const callback = callbackUrl === undefined ? new Uint8Array([0]) : concat(new Uint8Array([1]), borshString(callbackUrl));
   return concat(prefix, borshString(message), nonce, borshString(recipient), callback);
 }
+function base58Decode(value: string): Uint8Array {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let n = 0n;
+  for (const char of value) {
+    const digit = alphabet.indexOf(char);
+    if (digit < 0) throw new Error("Invalid base58");
+    n = n * 58n + BigInt(digit);
+  }
+  const bytes: number[] = [];
+  while (n > 0n) { bytes.unshift(Number(n & 255n)); n >>= 8n; }
+  for (let i = 0; i < value.length && value[i] === "1"; i++) bytes.unshift(0);
+  return Uint8Array.from(bytes);
+}
+
 function base64Decode(value: string): Uint8Array {
   const binary = atob(value);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
@@ -117,10 +131,11 @@ export async function inspectRecoveryWalletResponse(input: {
   };
   try {
     if (!normalized || input.nonce.length !== 32) throw new Error("Missing valid signed message or nonce");
-    if (!normalized.publicKey.startsWith("ed25519:")) throw new Error("Unsupported key type");
-    const key = PublicKey.fromString(normalized.publicKey);
+    const [keyType, encodedKey, extra] = normalized.publicKey.split(":");
+    if (keyType !== "ed25519" || !encodedKey || extra !== undefined) throw new Error("Unsupported key type");
+    const keyBytes = base58Decode(encodedKey);
     const signatureBytes = base64Decode(normalized.signature);
-    if (key.data.length !== 32 || signatureBytes.length !== 64) throw new Error("Invalid key or signature length");
+    if (keyBytes.length !== 32 || signatureBytes.length !== 64) throw new Error("Invalid key or signature length");
     const candidates: Array<[keyof SafeWalletDiagnostic["callbackVariantVerification"], string | undefined]> = [
       ["none", undefined],
       ["challengeCallbackUrl", input.challengeCallbackUrl],
@@ -132,7 +147,7 @@ export async function inspectRecoveryWalletResponse(input: {
         const payload = reconstructServerPayload(input.challengeMessage, input.nonce, input.challengeRecipient, callbackUrl);
         const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", asArrayBuffer(payload)));
         serverPayloadReconstruction = "SHA-256 digest generated";
-        const valid = key.verify(digest, signatureBytes);
+        const valid = ed25519.verify(signatureBytes, digest, keyBytes);
         callbackVariantVerification[name] = valid ? "valid" : "invalid";
       } catch {
         callbackVariantVerification[name] = "unavailable";
