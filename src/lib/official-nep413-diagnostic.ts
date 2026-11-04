@@ -1,5 +1,4 @@
-import { PublicKey } from "near-api-js";
-import { serializeMessage } from "near-api-js/nep413";
+import { verifyMessage } from "near-api-js/nep413";
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 
 export type OfficialNep413Diagnostic = {
@@ -27,6 +26,16 @@ export type OfficialNep413Diagnostic = {
 const ASCII_MESSAGE = /^[\x20-\x7E\r\n]*$/;
 const BASE64_SIGNATURE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
+// The official verifyMessage API also performs an on-chain FullAccess lookup.
+// This diagnostic-only stub allows its canonical NEP-413 Borsh serialization
+// and signature verification to run locally without an RPC call. It is NOT an
+// access-key assertion. The result is explicitly labelled as unchecked, and
+// this browser diagnostic is never used to authorize recovery. Supabase still
+// performs the authoritative on-chain FullAccess check before any reset.
+const diagnosticOnlyProvider = {
+  viewAccessKey: async () => ({ permission: "FullAccess" }),
+} as unknown as Parameters<typeof verifyMessage>[0]["provider"];
+
 function decodeBase64(value: string): Uint8Array | null {
   if (!BASE64_SIGNATURE.test(value)) return null;
   try {
@@ -39,8 +48,9 @@ function decodeBase64(value: string): Uint8Array | null {
 
 /**
  * Checks a real wallet response using near-api-js's official NEP-413
- * Borsh serializer and PublicKey.verify implementation. It performs no network
- * request and makes no database or wallet changes. Only safe metadata is returned.
+ * verifyMessage implementation. A diagnostic-only provider stub prevents an
+ * RPC call; its access-key result is deliberately not treated as a security
+ * check. No network, database, or wallet changes are performed.
  */
 export async function inspectOfficialNep413Response(input: {
   expectedAccountId: string;
@@ -80,21 +90,20 @@ export async function inspectOfficialNep413Response(input: {
     signatureBytes
   ) {
     try {
-      const publicKey = PublicKey.from(input.expectedPublicKey);
-      if (
-        !input.expectedPublicKey.startsWith("ed25519:") ||
-        publicKey.toString() !== input.expectedPublicKey
-      ) {
+      if (!input.expectedPublicKey.startsWith("ed25519:")) {
         throw new Error("Unsupported NEAR signing key.");
       }
-      const canonicalNep413Digest = serializeMessage({
-        message: input.message,
-        recipient: input.recipient,
-        nonce: input.nonce,
+      await verifyMessage({
+        signerAccountId: input.expectedAccountId,
+        signerPublicKey: input.expectedPublicKey,
+        payload: {
+          message: input.message,
+          recipient: input.recipient,
+          nonce: input.nonce,
+        },
+        signature: signatureBytes,
+        provider: diagnosticOnlyProvider,
       });
-      if (!publicKey.verify(canonicalNep413Digest, signatureBytes)) {
-        throw new Error("NEP-413 signature verification failed.");
-      }
       officialNep413Verification = "valid";
     } catch {
       // Do not expose the raw signature, key, payload, or provider error.
