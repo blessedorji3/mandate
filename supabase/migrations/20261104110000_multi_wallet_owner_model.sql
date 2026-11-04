@@ -68,6 +68,13 @@ begin
 
   perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text, 0));
 
+  if exists (
+    select 1 from mandate_private.near_wallet_recovery_requests
+    where owner_id = p_owner_id and status = 'pending'
+  ) then
+    raise exception 'Wallet registration is unavailable while 24-hour recovery is pending';
+  end if;
+
   select count(*) into v_count
   from mandate_private.near_wallet_registration_challenges
   where owner_id = p_owner_id
@@ -111,6 +118,13 @@ begin
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text, 0));
+
+  if exists (
+    select 1 from mandate_private.near_wallet_recovery_requests
+    where owner_id = p_owner_id and status = 'pending'
+  ) then
+    raise exception 'Wallet registration is unavailable while 24-hour recovery is pending';
+  end if;
 
   select * into c
   from mandate_private.near_wallet_registration_challenges
