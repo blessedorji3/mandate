@@ -1,0 +1,560 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import type { Account, NearConnector } from "@hot-labs/near-connect";
+import { createClient } from "@/lib/supabase/client";
+import { inspectRecoveryWalletResponse, isSafeRecoveryWalletResponseToSubmit, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
+import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
+import { inspectOfficialNep413Response, type OfficialNep413Diagnostic } from "@/lib/official-nep413-diagnostic";
+
+type HistoricalWallet = { accountId: string; revoked: boolean };
+type ActiveWallet = { accountId: string; publicKey: string; verifiedAt: string; revokedAt: string | null; active: boolean };
+
+function fromHex(value: string): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})+$/.test(value)) throw new Error("The recovery challenge was malformed.");
+  return Uint8Array.from(value.match(/.{2}/g)!, part => Number.parseInt(part, 16));
+}
+
+async function recoveryRequest(body: Record<string, unknown>) {
+  const supabase = createClient();
+  const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body });
+  if (error) {
+    // FunctionsHttpError carries the Edge Function response in context.
+    // Surface the server's safe JSON error instead of the SDK's generic
+    // "non-2xx status code" message, without logging credentials or signatures.
+    const context = (error as { context?: Response }).context;
+    if (context && typeof context.clone === "function") {
+      try {
+        const payload = await context.clone().json();
+        if (payload && typeof payload.error === "string") throw new Error(payload.error);
+      } catch (cause) {
+        if (cause instanceof Error && cause.message !== "Unexpected end of JSON input") throw cause;
+      }
+    }
+    throw new Error(error.message || "MANDATE recovery service is unavailable.");
+  }
+  if (!data || typeof data !== "object") throw new Error("MANDATE returned an invalid recovery response.");
+  if ("error" in data && typeof data.error === "string") throw new Error(data.error);
+  return data as Record<string, any>;
+}
+
+export function RecoveryCodePanel() {
+  const connectorRef = useRef<NearConnector | null>(null);
+  const [historicalWallets, setHistoricalWallets] = useState<HistoricalWallet[]>([]);
+  const [selectedWallet, setSelectedWallet] = useState("");
+  const [connectedAccount, setConnectedAccount] = useState("");
+  const [hasHistory, setHasHistory] = useState(false);
+  const [activeWallets, setActiveWallets] = useState<ActiveWallet[]>([]);
+  const [established, setEstablished] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("Checking independent recovery status…");
+  const [safeDiagnostic, setSafeDiagnostic] = useState<SafeWalletDiagnostic | null>(null);
+  const [diagnosticSubmission, setDiagnosticSubmission] = useState<"not-submitted" | "submitted" | "verified" | "server-error">("not-submitted");
+  const [officialDiagnostic, setOfficialDiagnostic] = useState<OfficialNep413Diagnostic | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let connector: NearConnector | null = null;
+    const onSignIn = (event: { accounts: Account[] }) => {
+      if (active) setConnectedAccount(event.accounts[0]?.accountId ?? "");
+    };
+    const onSignOut = () => {
+      if (active) setConnectedAccount("");
+    };
+
+    async function initialize() {
+      try {
+        const status = await recoveryRequest({ action: "recovery_setup_status" });
+        if (!active) return;
+        setEstablished(status.established === true);
+        setHasHistory(status.hasWalletHistory === true);
+        const wallets = Array.isArray(status.historicalWallets) ? status.historicalWallets : [];
+        setHistoricalWallets(wallets);
+        setSelectedWallet(wallets[0]?.accountId ?? "");
+        if (status.established === true) {
+          const lifecycle = await recoveryRequest({ action: "recovery_lifecycle" });
+          const inventory = await recoveryRequest({ action: "wallet_list" });
+          const linked = (Array.isArray(inventory.wallets) ? inventory.wallets : []) as ActiveWallet[];
+          const activeLinks = linked.filter(wallet => wallet.active === true);
+          const preferred = typeof lifecycle.activeWalletAccountId === "string" &&
+            activeLinks.some(wallet => wallet.accountId === lifecycle.activeWalletAccountId)
+              ? lifecycle.activeWalletAccountId
+              : activeLinks[0]?.accountId ?? "";
+          setActiveWallets(activeLinks);
+          setSelectedWallet(preferred);
+        }
+        setNotice(status.established
+          ? "An independent recovery code is already established. It cannot be displayed again."
+          : status.hasWalletHistory
+            ? "This existing account must prove control of a previously registered wallet before creating its recovery code."
+            : "Create your independent recovery code before registering your first NEAR wallet.");
+        if (status.hasWalletHistory === true || status.established === true) {
+          const { NearConnector } = await import("@hot-labs/near-connect");
+          connector = new NearConnector({ network: "testnet", features: { testnet: true }, autoConnect: false });
+          connectorRef.current = connector;
+          connector.on("wallet:signIn", onSignIn);
+          connector.on("wallet:signOut", onSignOut);
+          await connector.whenManifestLoaded;
+          if (active) setReady(true);
+        }
+      } catch (cause) {
+        if (active) {
+          setError(cause instanceof Error ? cause.message : "Could not load recovery setup.");
+          setNotice("Recovery status unavailable. Wallet registration must remain disabled.");
+        }
+      }
+    }
+    void initialize();
+    return () => {
+      active = false;
+      if (connector) {
+        connector.off("wallet:signIn", onSignIn);
+        connector.off("wallet:signOut", onSignOut);
+      }
+    };
+  }, []);
+
+  async function connectHistoricalWallet() {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const connector = connectorRef.current;
+      if (!connector) throw new Error("NEAR wallet connector is unavailable.");
+      await connector.connect();
+      const connected = await connector.getConnectedWallet();
+      const account = connected.accounts[0]?.accountId ?? "";
+      setConnectedAccount(account);
+      if (!account || account !== selectedWallet) {
+        throw new Error("Connect the selected registered NEAR wallet.");
+      }
+      setNotice("Registered NEAR wallet connected. You can continue with the requested security action.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not connect the historical wallet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createRecoveryCode() {
+    if (busy || established || recoveryCode) return;
+    setBusy(true);
+    setError("");
+    try {
+      const challenge = await recoveryRequest({
+        action: "recovery_setup_challenge",
+        ...(hasHistory ? { historicalAccountId: selectedWallet } : {}),
+      });
+      let signedMessage: Record<string, unknown> | undefined;
+      if (challenge.requiresWalletSignature === true) {
+        const connector = connectorRef.current;
+        if (!connector || connectedAccount !== selectedWallet) {
+          throw new Error("Connect the selected historical NEAR wallet first.");
+        }
+        const wallet = await connector.wallet();
+        if (typeof wallet.signMessage !== "function") {
+          throw new Error("This wallet does not support NEP-413 message signing.");
+        }
+        setNotice("Review and sign the recovery-enrollment message. This signature does not move funds…");
+        signedMessage = await wallet.signMessage({
+          message: challenge.message,
+          recipient: challenge.recipient,
+          nonce: fromHex(challenge.nonceHex),
+          network: "testnet",
+          signerId: selectedWallet,
+        }) as unknown as Record<string, unknown>;
+      }
+      const result = await recoveryRequest({
+        action: "recovery_setup_verify",
+        challengeId: challenge.challengeId,
+        ...(signedMessage ? { signedMessage } : {}),
+      });
+      if (result.established !== true || typeof result.recoveryCode !== "string") {
+        throw new Error("MANDATE did not confirm recovery-code creation.");
+      }
+      setRecoveryCode(result.recoveryCode);
+      setEstablished(true);
+      setNotice("Recovery code created. Save it now; it will not be shown again.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Recovery-code setup failed.");
+      setNotice("Recovery code was not established.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runMeteorSignatureDiagnostic() {
+    if (!ready || busy || !established || !selectedWallet || connectedAccount !== selectedWallet) return;
+    setBusy(true);
+    setError("");
+    setOfficialDiagnostic(null);
+    try {
+      const registeredWallet = activeWallets.find(wallet =>
+        wallet.accountId === selectedWallet && wallet.active === true
+      );
+      if (!registeredWallet) {
+        throw new Error("Select an active verified wallet before running the signature diagnostic.");
+      }
+
+      // Reload Meteor's executor in a fresh connector so this diagnostic does
+      // not reuse a stale SandboxExecutor held by the existing connector.
+      const { NearConnector } = await import("@hot-labs/near-connect");
+      const signingConnector = new NearConnector({
+        network: "testnet",
+        features: { testnet: true },
+        autoConnect: false,
+      });
+      await signingConnector.whenManifestLoaded;
+      const signingManifest = signingConnector.manifest.wallets.find(item => item.id === "meteor-wallet");
+      if (!signingManifest || typeof signingManifest.version !== "string" || !signingManifest.version) {
+        throw new Error("Meteor Wallet manifest is unavailable; cannot safely refresh its signing executor.");
+      }
+      const cacheKey = `meteor-wallet:${signingManifest.version}`;
+      await signingConnector.db.removeItem(cacheKey);
+
+      const connected = await signingConnector.getConnectedWallet();
+      if (connected.accounts[0]?.accountId !== selectedWallet) {
+        throw new Error("The freshly loaded connector did not restore your selected active registered wallet.");
+      }
+      const wallet = connected.wallet;
+      if (wallet.manifest?.id !== "meteor-wallet") {
+        throw new Error("The freshly loaded connector did not select Meteor Wallet.");
+      }
+      if (typeof wallet.signMessage !== "function") {
+        throw new Error("This wallet does not support NEP-413 message signing.");
+      }
+
+      // This is an ephemeral, ASCII-only message. It is not a recovery-reset
+      // challenge and is never submitted to Supabase or stored in a database.
+      const nonce = crypto.getRandomValues(new Uint8Array(32));
+      const message = [
+        "MANDATE ASCII NEP-413 DIAGNOSTIC",
+        "Purpose: verify wallet message signing only.",
+        "No recovery code, wallet link, or funds will be changed.",
+        `Account: ${selectedWallet}`,
+        `Challenge: ${crypto.randomUUID()}`,
+      ].join("\\n");
+      const walletResponse = await wallet.signMessage({
+        message,
+        recipient: "mandate-snowy.vercel.app",
+        nonce,
+        network: "testnet",
+        signerId: selectedWallet,
+      });
+
+      let executorHost: string | null = null;
+      try { executorHost = new URL(wallet.manifest.executor).hostname; } catch { /* safe metadata only */ }
+      const diagnostic = await inspectOfficialNep413Response({
+        expectedAccountId: selectedWallet,
+        expectedPublicKey: registeredWallet.publicKey,
+        message,
+        recipient: "mandate-snowy.vercel.app",
+        nonce,
+        walletResponse,
+        walletProvider: {
+          id: wallet.manifest.id,
+          version: signingManifest.version,
+          executorHost,
+          cachedExecutorCleared: true,
+        },
+      });
+      setOfficialDiagnostic(diagnostic);
+
+      if (diagnostic.officialNep413Verification === "valid") {
+        setNotice("The official NEAR NEP-413 verifier accepted the real Meteor Wallet signature. No recovery code, wallet link, or funds were changed.");
+      } else {
+        setNotice("The non-mutating signature diagnostic completed. Read its safe result below; no recovery code, wallet link, or funds were changed.");
+        setError("The official NEAR verifier did not accept this signature, or a required identity/format check failed. The recovery reset was not attempted.");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The non-mutating Meteor signature diagnostic failed.");
+      setNotice("No recovery code, wallet link, or funds were changed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetRecoveryCode() {
+    if (!ready || busy || !established || !selectedWallet || recoveryCode) return;
+    setBusy(true);
+    setError("");
+    setOfficialDiagnostic(null);
+    setSafeDiagnostic(null);
+    setDiagnosticSubmission("not-submitted");
+    try {
+      const connector = connectorRef.current;
+      if (!connector || connectedAccount !== selectedWallet) {
+        throw new Error("Connect the selected active registered wallet before resetting the code.");
+      }
+      const challenge = await recoveryRequest({
+        action: "recovery_code_reset_challenge",
+        accountId: selectedWallet,
+        callbackUrl: window.location.href,
+      });
+      if (challenge.accountId !== selectedWallet || typeof challenge.publicKey !== "string") {
+        throw new Error("MANDATE did not issue a challenge for the selected active registered wallet.");
+      }
+      // Use a brand-new connector and wallet adapter. Removing the IndexedDB
+      // entry from the already-connected adapter is insufficient because its
+      // SandboxExecutor can retain the old executor source in memory.
+      const { NearConnector } = await import("@hot-labs/near-connect");
+      const signingConnector = new NearConnector({
+        network: "testnet",
+        features: { testnet: true },
+        autoConnect: false,
+      });
+      await signingConnector.whenManifestLoaded;
+      const signingManifest = signingConnector.manifest.wallets.find(item => item.id === "meteor-wallet");
+      if (!signingManifest || typeof signingManifest.version !== "string" || !signingManifest.version) {
+        throw new Error("Meteor Wallet manifest is unavailable; cannot safely refresh its signing executor.");
+      }
+      const cacheKey = `meteor-wallet:${signingManifest.version}`;
+      await signingConnector.db.removeItem(cacheKey);
+      const cachedExecutorCleared = true;
+      const connected = await signingConnector.getConnectedWallet();
+      if (connected.accounts[0]?.accountId !== selectedWallet) {
+        throw new Error("The freshly loaded connector did not restore your selected active registered wallet.");
+      }
+      const wallet = connected.wallet;
+      if (wallet.manifest?.id !== "meteor-wallet") {
+        throw new Error("The freshly loaded connector did not select Meteor Wallet.");
+      }
+      if (typeof wallet.signMessage !== "function") {
+        throw new Error("This wallet does not support NEP-413 message signing.");
+      }
+      const adapterClass = typeof wallet.constructor?.name === "string" ? wallet.constructor.name : null;
+      let executorHost: string | null = null;
+      try { executorHost = new URL(wallet.manifest.executor).hostname; } catch { /* safe metadata only */ }
+      const walletProvider = {
+        id: typeof wallet.manifest?.id === "string" ? wallet.manifest.id : null,
+        name: typeof wallet.manifest?.name === "string" ? wallet.manifest.name : null,
+        version: typeof wallet.manifest?.version === "string" ? wallet.manifest.version : null,
+        adapterClass,
+        executorHost,
+        cachedExecutorCleared,
+        cacheKey,
+        diagnosticBuild: "fresh-connector-cache-reset-v1",
+      };
+      setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
+      const nonceBytes = fromHex(challenge.nonceHex);
+      const walletRequest = {
+        message: challenge.message,
+        recipient: challenge.recipient,
+        callbackUrl: challenge.callbackUrl,
+        nonce: nonceBytes,
+        network: "testnet" as const,
+        signerId: selectedWallet,
+      };
+      const walletSignedMessage = await wallet.signMessage(walletRequest);
+      const officialResult = await inspectOfficialNep413Response({
+        expectedAccountId: challenge.accountId,
+        expectedPublicKey: challenge.publicKey,
+        message: challenge.message,
+        recipient: challenge.recipient,
+        nonce: nonceBytes,
+        walletResponse: walletSignedMessage,
+        callbackUrl: challenge.callbackUrl,
+        walletProvider: {
+          id: typeof wallet.manifest?.id === "string" ? wallet.manifest.id : "meteor-wallet",
+          version: typeof signingManifest.version === "string" ? signingManifest.version : "unknown",
+          executorHost,
+          cachedExecutorCleared,
+        },
+      });
+      setOfficialDiagnostic(officialResult);
+      if (officialResult.officialNep413Verification !== "valid") {
+        throw new Error(
+          "The official NEAR verifier did not accept the exact recovery-reset message. The signed response was not submitted; your existing recovery code remains unchanged.",
+        );
+      }
+      const diagnostic = await inspectRecoveryWalletResponse({
+        walletProvider,
+        challengeMessage: challenge.message,
+        challengeRecipient: challenge.recipient,
+        challengeCallbackUrl: challenge.callbackUrl,
+        walletRequestCallbackUrl: walletRequest.callbackUrl,
+        walletRequestMessage: walletRequest.message,
+        walletRequestRecipient: walletRequest.recipient,
+        browserOrigin: window.location.origin,
+        browserHref: window.location.href,
+        nonce: nonceBytes,
+        expectedAccountId: challenge.accountId,
+        expectedPublicKey: challenge.publicKey,
+        walletResponse: walletSignedMessage,
+      });
+      setSafeDiagnostic(diagnostic);
+
+      // The browser diagnostic is informational, not an authentication decision.
+      // Submit an exact, correctly shaped response so Supabase can independently
+      // verify NEP-413, the active FullAccess key, owner, nonce, recipient,
+      // challenge expiry and one-time database completion.
+      if (!isSafeRecoveryWalletResponseToSubmit(diagnostic)) {
+        throw new Error(
+          "The wallet response did not match the expected challenge, account, public key, nonce or signature format. It was not submitted; your existing recovery code remains unchanged.",
+        );
+      }
+
+      setDiagnosticSubmission("submitted");
+      setNotice("Signed response submitted. Supabase is independently verifying the NEP-413 signature and active wallet before changing your recovery code…");
+      const normalizedSignature = normalizeNearSignedMessage(walletSignedMessage);
+      let result: Record<string, any>;
+      try {
+        result = await recoveryRequest({
+          action: "recovery_code_reset_verify",
+          challengeId: challenge.challengeId,
+          signedMessage: normalizedSignature,
+        });
+      } catch (cause) {
+        setDiagnosticSubmission("server-error");
+        throw cause;
+      }
+      if (
+        result.reset !== true ||
+        typeof result.recoveryCode !== "string" ||
+        !/^MND-[0-9A-F]{64}$/.test(result.recoveryCode)
+      ) {
+        throw new Error("MANDATE did not confirm the recovery-code reset. Your existing recovery code remains unchanged.");
+      }
+      setDiagnosticSubmission("verified");
+      setRecoveryCode(result.recoveryCode);
+      setCopied(false);
+      setNotice("Recovery code reset successfully. Save the new code now; the previous code is no longer valid. Your registered wallet was not changed.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Recovery-code reset failed.");
+      setNotice("Recovery code was not reset.");
+    } finally { setBusy(false); }
+  }
+
+  async function copyRecoveryCode() {
+    if (!recoveryCode) return;
+    try {
+      await navigator.clipboard.writeText(recoveryCode);
+      setCopied(true);
+    } catch {
+      setError("Clipboard access failed. Select and copy the recovery code manually.");
+    }
+  }
+
+  return (
+    <section className="panel recovery-code-panel">
+      <div className="panel-heading">
+        <div><span className="step">02</span><h3>Independent recovery code</h3></div>
+        <span className="muted-tag">ACCOUNT SECURITY</span>
+      </div>
+      <p className="near-wallet-notice">{notice}</p>
+      {established && !recoveryCode && (
+        <div className="near-transfer-box">
+          <strong>Recovery code already established</strong>
+          <p>The original code cannot be displayed again. If you did not save it, you can replace it by proving control of your currently active registered wallet.</p>
+          <label htmlFor="recovery-active-wallet">Choose an active verified wallet</label>
+          <select
+            id="recovery-active-wallet"
+            value={selectedWallet}
+            onChange={event => { setSelectedWallet(event.target.value); setConnectedAccount(""); }}
+          >
+            {activeWallets.map(wallet => (
+              <option key={wallet.accountId} value={wallet.accountId}>
+                {wallet.accountId}
+              </option>
+            ))}
+          </select>
+          <button className="outline-button" onClick={connectHistoricalWallet} disabled={!ready || busy || !selectedWallet}>
+            {busy ? "Please wait…" : connectedAccount === selectedWallet ? "Selected wallet connected ✓" : "Connect selected wallet"}
+          </button>
+          <button className="outline-button" onClick={runMeteorSignatureDiagnostic} disabled={!ready || busy || !selectedWallet || connectedAccount !== selectedWallet}>
+            {busy ? "Testing wallet signature…" : "Test ASCII-only signature (no changes)"}
+          </button>
+          <p>This asks Meteor Wallet to sign a one-time diagnostic message. It does not call the recovery-reset endpoint, change wallet links, or send a transaction.</p>
+          <button className="inspect-button" onClick={resetRecoveryCode} disabled={!ready || busy || !selectedWallet || connectedAccount !== selectedWallet}>
+            {busy ? "Verifying wallet signature…" : "Reset recovery code →"}
+          </button>
+          <p>This reset does not change your registered wallet, move funds, or start the 24-hour wallet recovery process.</p>
+        </div>
+      )}
+      {!established && hasHistory && (
+        <div className="near-transfer-box">
+          <label htmlFor="recovery-historical-wallet">Previously registered wallet</label>
+          <select id="recovery-historical-wallet" value={selectedWallet} onChange={event => { setSelectedWallet(event.target.value); setConnectedAccount(""); }}>
+            {historicalWallets.map(wallet => (
+              <option key={wallet.accountId} value={wallet.accountId}>
+                {wallet.accountId}{wallet.revoked ? " (revoked in MANDATE)" : ""}
+              </option>
+            ))}
+          </select>
+          <p>Connect this wallet and sign a fresh ownership message. This does not send a transaction.</p>
+          <button className="outline-button" onClick={connectHistoricalWallet} disabled={!ready || busy || !selectedWallet}>
+            {busy ? "Please wait…" : connectedAccount === selectedWallet ? "Historical wallet connected ✓" : "Connect historical wallet"}
+          </button>
+        </div>
+      )}
+      {!established && !recoveryCode && (
+        <button className="inspect-button" onClick={createRecoveryCode} disabled={busy || (hasHistory && (!selectedWallet || connectedAccount !== selectedWallet))}>
+          {busy ? "Establishing recovery…" : "Generate my recovery code →"}
+        </button>
+      )}
+      {recoveryCode && (
+        <div className="recovery-code-reveal">
+          <strong>Save this code now — it is shown only once</strong>
+          <code>{recoveryCode}</code>
+          <button className="outline-button" onClick={copyRecoveryCode}>{copied ? "Copied ✓" : "Copy recovery code"}</button>
+          <p>Store it somewhere private and secure, preferably offline. Do not share it with anyone or paste it into chats. MANDATE stores only a cryptographic hash.</p>
+        </div>
+      )}
+      {officialDiagnostic && (
+        <div className="near-diagnostic" role="status" aria-live="polite">
+          <div className="near-diagnostic-heading">
+            <strong>Official NEAR NEP-413 diagnostic</strong>
+            <span className={`diagnostic-pill ${officialDiagnostic.officialNep413Verification === "valid" ? "is-valid" : "is-invalid"}`}>
+              {officialDiagnostic.officialNep413Verification === "valid" ? "SIGNATURE VALID" : "CHECK FAILED"}
+            </span>
+          </div>
+          <p>{officialDiagnostic.officialNep413Verification === "valid"
+            ? diagnosticSubmission === "verified"
+              ? "The official NEAR verifier accepted the exact recovery-reset message, and Supabase confirmed the one-time credential rotation."
+              : diagnosticSubmission === "server-error"
+                ? "The official NEAR verifier accepted the exact recovery-reset message, but Supabase did not confirm the reset. Do not assume the recovery code changed."
+                : "The official NEAR verifier accepted the exact recovery-reset message. Supabase still performs the authoritative active FullAccess check and one-time credential rotation."
+            : "The official NEAR verifier did not accept the exact recovery-reset message, or an identity/format check failed. The response was not submitted."}</p>
+          <details>
+            <summary>View technical diagnostic details</summary>
+            <pre>{JSON.stringify(officialDiagnostic, null, 2)}</pre>
+          </details>
+        </div>
+      )}
+      {safeDiagnostic && (
+        <div className="near-diagnostic" role="status" aria-live="polite">
+          <div className="near-diagnostic-heading">
+            <strong>Wallet signing diagnostics</strong>
+            <span className={`diagnostic-pill ${diagnosticSubmission === "verified" || (diagnosticSubmission === "not-submitted" && safeDiagnostic.localEd25519Verification === "valid") ? "is-valid" : diagnosticSubmission === "server-error" ? "is-invalid" : "is-neutral"}`}>
+              {diagnosticSubmission === "verified"
+                ? "RESET VERIFIED"
+                : diagnosticSubmission === "submitted"
+                  ? "SERVER CHECKING"
+                  : diagnosticSubmission === "server-error"
+                    ? "RESET NOT CONFIRMED"
+                    : safeDiagnostic.localEd25519Verification === "valid"
+                      ? "LOCAL SIGNATURE VALID"
+                      : "NEEDS REVIEW"}
+            </span>
+          </div>
+          <p>{diagnosticSubmission === "not-submitted"
+            ? "The browser checks challenge identity and signature encoding. Its local cryptographic result is informational only; Supabase performs the authoritative signature verification before any reset."
+            : diagnosticSubmission === "submitted"
+              ? "The signed response has been submitted. Supabase is verifying the signature and wallet ownership."
+              : diagnosticSubmission === "verified"
+                ? "Supabase accepted the wallet signature and confirmed the recovery-code reset."
+                : "The server did not confirm the reset. Read the error above; do not assume the recovery code changed."}</p>
+          <details>
+            <summary>View technical diagnostic details</summary>
+            <pre>{JSON.stringify(safeDiagnostic, null, 2)}</pre>
+          </details>
+        </div>
+      )}
+      {error && <p className="near-wallet-error" role="alert">{error}</p>}
+    </section>
+  );
+}

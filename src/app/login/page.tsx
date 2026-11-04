@@ -24,7 +24,11 @@ export default function LoginPage() {
           options: { emailRedirectTo: `${window.location.origin}/auth/callback` }
         });
         if (error) throw error;
-        setMessage(data.session ? "Account created. You can now open your workspace." : "Check your email for the confirmation link, then sign in.");
+        if (data.session) {
+          window.location.assign("/wallet?setup=recovery");
+        } else {
+          setMessage("Check your email for the confirmation link. After confirming, MANDATE will guide you through creating your one-time recovery code.");
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;

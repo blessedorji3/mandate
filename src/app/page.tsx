@@ -120,7 +120,9 @@ export default function Home() {
 
           <section className="panel activity-panel" id="activity"><div className="panel-heading"><div><span className="step">03</span><h3>Recent decisions</h3></div><span className="muted-tag">SAVED RECEIPTS</span></div>{history.length === 0 ? <div className="empty-history">No decisions yet. Run your first inspection above.</div> : <div className="history-list">{history.map((item, index) => <div className="history-row" key={item.proposalId + index}><span className={`history-icon ${item.outcome.toLowerCase()}`}>{item.outcome === "ALLOW" ? "✓" : item.outcome === "BLOCK" ? "×" : "!"}</span><span className="history-main"><strong>{item.reason.replaceAll("_", " ").toLowerCase()}</strong><small>{item.proposalId}{item.createdAt ? ` · ${new Date(item.createdAt).toLocaleString()}` : ""}</small></span><span className={`history-status ${item.outcome.toLowerCase()}`}>{item.outcome.replace("_", " ")}</span></div>)}</div>}</section>
 
-          <DeveloperPanel />\n\n          <PolicyPanel />
+          <DeveloperPanel />
+
+          <PolicyPanel />
 
           <footer className="footer"><span>MANDATE <b>·</b> Intelligence with boundaries.</span><span>Prototype v0.1 <b>·</b> Test environment only</span></footer>
         </div>

@@ -17,13 +17,19 @@
     "next": "^15.5.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "@hot-labs/near-connect": "^0.11.4"
+    "@hot-labs/near-connect": "^0.11.4",
+    "@noble/curves": "2.2.0",
+    "near-api-js": "7.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.18.6",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "@supabase/storage-js": "2.118.0"
   }
 }

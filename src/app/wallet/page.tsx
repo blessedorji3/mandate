@@ -4,6 +4,8 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@/lib/supabase/server";
 import { NearWalletPanel } from "@/app/near-wallet-panel";
+import { RecoveryCodePanel } from "@/app/recovery-code-panel";
+import { RecoveryLifecyclePanel } from "@/app/recovery-lifecycle-panel";
 
 export default async function WalletPage() {
   const supabase = await createClient();
@@ -20,6 +22,8 @@ export default async function WalletPage() {
           <div className="agent-boundary"><span className="live-dot" /> Testnet only <b>·</b> Non-custodial connection <b>·</b> No automatic transactions</div>
         </div>
         <NearWalletPanel />
+        <RecoveryCodePanel />
+        <RecoveryLifecyclePanel />
         <p className="agent-prototype-note"><a href="/">Back to MANDATE dashboard</a> · <a href="/agent">Open agent chat</a></p>
       </div>
     </main>

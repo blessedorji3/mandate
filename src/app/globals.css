@@ -154,3 +154,525 @@
 .near-wallet-boundary strong{font:10px 'DM Mono',monospace;color:#b8d99e;letter-spacing:.5px}
 .near-wallet-boundary span{color:#8d9b90;font-size:10px;line-height:1.6}
 @media(max-width:560px){.near-wallet-connected{align-items:flex-start;flex-wrap:wrap}.near-wallet-connected>div{flex-basis:calc(100% - 48px)}.near-wallet-connected .outline-button{width:100%}}
+
+
+/* Independent recovery-code setup */
+.recovery-code-panel {
+  margin-top: 22px;
+}
+.recovery-code-panel select {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  color: var(--text-primary, #f4f5f7);
+  background: var(--panel, #111820);
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 10px;
+}
+.recovery-code-reveal {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid rgba(90,190,140,.38);
+  border-radius: 12px;
+  background: rgba(35,110,75,.10);
+}
+.recovery-code-reveal code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(0,0,0,.24);
+  color: #d9f5e5;
+  font-size: 13px;
+  user-select: all;
+}
+.recovery-code-reveal p {
+  margin: 0;
+  color: var(--muted, #9aa5b1);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+
+/* Delayed wallet recovery lifecycle */
+.recovery-lifecycle-panel {
+  margin-top: 22px;
+}
+.recovery-pending {
+  display: grid;
+  gap: 13px;
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid rgba(230,180,80,.32);
+  border-radius: 12px;
+  background: rgba(150,105,30,.08);
+}
+.recovery-pending p {
+  margin: 0;
+  color: var(--muted, #9aa5b1);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.recovery-pending label,
+.recovery-lifecycle-panel label {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-primary, #f4f5f7);
+  font-size: 13px;
+  font-weight: 600;
+}
+.recovery-pending input,
+.recovery-lifecycle-panel input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 10px;
+  background: var(--panel, #111820);
+  color: var(--text-primary, #f4f5f7);
+  font: inherit;
+}
+.recovery-countdown {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.22);
+}
+.recovery-countdown span {
+  color: var(--muted, #9aa5b1);
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+.recovery-countdown strong {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(26px, 6vw, 36px);
+  letter-spacing: .04em;
+}
+
+
+/* MANDATE wallet and recovery UI polish — shared controls and responsive states. */
+.near-wallet-panel .near-transfer-box,
+.recovery-code-panel .near-transfer-box {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #29352d;
+  border-radius: 9px;
+  background: #0e130f;
+}
+.near-wallet-panel .near-transfer-box > strong,
+.recovery-code-panel .near-transfer-box > strong {
+  color: #e8f0e9;
+  font: 600 13px Manrope, sans-serif;
+}
+.near-wallet-panel .near-transfer-box > p,
+.recovery-code-panel .near-transfer-box > p {
+  margin: 0;
+  color: #9aa69d;
+  font-size: 11px;
+  line-height: 1.65;
+}
+.near-wallet-panel .scenario-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+}
+.near-wallet-panel .wallet-link-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid #2a342d;
+  border-radius: 8px;
+  background: #121814;
+  cursor: default;
+  transition: border-color .18s ease, background .18s ease;
+}
+.near-wallet-panel .wallet-link-row:hover {
+  border-color: #39483c;
+  background: #141b16;
+}
+.near-wallet-panel .wallet-link-row .scenario-text {
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+.near-wallet-panel .wallet-link-row .scenario-text strong {
+  overflow-wrap: anywhere;
+  color: #e3ebe4;
+  font-size: 11px;
+}
+.near-wallet-panel .wallet-link-row .scenario-text small {
+  color: #869389;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.wallet-link-status,
+.diagnostic-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 23px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: 9px 'DM Mono', monospace;
+  letter-spacing: .55px;
+  white-space: nowrap;
+}
+.wallet-link-status.is-active,
+.diagnostic-pill.is-valid {
+  border-color: #3d5933;
+  background: #172417;
+  color: #b8ed8c;
+}
+.wallet-link-status.is-revoked,
+.diagnostic-pill.is-invalid {
+  border-color: #604040;
+  background: #211616;
+  color: #eaa2a2;
+}
+.diagnostic-pill.is-neutral {
+  border-color: #3b463e;
+  background: #171e19;
+  color: #b3c0b6;
+}
+.wallet-revoke-controls {
+  display: grid;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid #3a3930;
+  border-radius: 9px;
+  background: #121511;
+}
+.wallet-revoke-label {
+  color: #dbe5dc;
+  font: 600 11px Manrope, sans-serif;
+}
+.wallet-revoke-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.near-wallet-panel select,
+.recovery-code-panel select,
+.recovery-lifecycle-panel input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 45px;
+  padding: 11px 13px;
+  border: 1px solid #354238;
+  border-radius: 8px;
+  background-color: #0b100d;
+  color: #edf2ee;
+  font: 12px 'DM Sans', sans-serif;
+  color-scheme: dark;
+  outline: none;
+  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+.near-wallet-panel select,
+.recovery-code-panel select {
+  appearance: none;
+  padding-right: 40px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #9eafa1 50%),
+    linear-gradient(135deg, #9eafa1 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 19px,
+    calc(100% - 12px) 19px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.near-wallet-panel select:disabled,
+.recovery-code-panel select:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+.near-wallet-panel select:focus-visible,
+.recovery-code-panel select:focus-visible,
+.recovery-lifecycle-panel input:focus-visible {
+  border-color: #9ddd62;
+  box-shadow: 0 0 0 3px #b8f36a24;
+}
+.recovery-lifecycle-panel input::placeholder {
+  color: #66736a;
+}
+.wallet-revoke-actions .wallet-revoke-button {
+  min-width: 220px;
+  margin: 0;
+  border-color: #6a4141;
+  background: #241718;
+  color: #f0b2b2;
+  white-space: nowrap;
+}
+.wallet-revoke-actions .wallet-revoke-button:hover:not(:disabled) {
+  border-color: #a05c5c;
+  background: #311b1d;
+  color: #ffd0d0;
+}
+.wallet-revoke-actions .wallet-revoke-button:disabled {
+  border-color: #423535;
+  background: #191516;
+  color: #876d6d;
+  opacity: .65;
+}
+.wallet-revoke-controls > p {
+  margin: 0;
+  color: #87938a;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.near-wallet-panel .inspect-button,
+.near-wallet-panel .outline-button,
+.recovery-code-panel .inspect-button,
+.recovery-code-panel .outline-button {
+  min-height: 44px;
+  padding: 11px 15px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.near-wallet-panel .inspect-button,
+.recovery-code-panel .inspect-button {
+  min-height: 46px;
+  box-shadow: 0 5px 16px #b8f36a12;
+}
+.near-wallet-panel .inspect-button:hover:not(:disabled),
+.recovery-code-panel .inspect-button:hover:not(:disabled) {
+  background: #c9ff83;
+  box-shadow: 0 7px 20px #b8f36a20;
+  transform: translateY(-1px);
+}
+.near-wallet-panel .outline-button,
+.recovery-code-panel .outline-button {
+  border-color: #3b483e;
+  background: #151b16;
+  color: #d3ded5;
+}
+.near-wallet-panel .outline-button:hover:not(:disabled),
+.recovery-code-panel .outline-button:hover:not(:disabled) {
+  border-color: #6c885b;
+  background: #1b261b;
+  color: #eaf5e8;
+}
+.near-wallet-panel .inspect-button:focus-visible,
+.near-wallet-panel .outline-button:focus-visible,
+.recovery-code-panel .inspect-button:focus-visible,
+.recovery-code-panel .outline-button:focus-visible {
+  outline: 2px solid #c4f58b;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px #b8f36a20;
+}
+.near-wallet-panel .inspect-button:disabled,
+.near-wallet-panel .outline-button:disabled,
+.recovery-code-panel .inspect-button:disabled,
+.recovery-code-panel .outline-button:disabled {
+  opacity: .58;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.near-wallet-panel .near-wallet-notice,
+.recovery-code-panel .near-wallet-notice {
+  color: #aab7ac;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.near-wallet-panel .near-wallet-error,
+.recovery-code-panel .near-wallet-error {
+  padding: 12px 13px;
+  border-color: #704444;
+  background: #251819;
+  color: #f0b1b1;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.recovery-code-panel .near-transfer-box label,
+.recovery-lifecycle-panel label {
+  margin: 2px 0 0;
+  color: #dce6dd;
+  font: 600 11px Manrope, sans-serif;
+}
+.recovery-code-panel .near-transfer-box > .outline-button,
+.recovery-code-panel .near-transfer-box > .inspect-button,
+.recovery-lifecycle-panel .near-transfer-box > .outline-button,
+.recovery-lifecycle-panel .near-transfer-box > .inspect-button {
+  width: 100%;
+}
+.recovery-code-panel .recovery-code-reveal {
+  gap: 11px;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #48613d;
+  border-radius: 9px;
+  background: #142017;
+}
+.recovery-code-panel .recovery-code-reveal strong {
+  color: #c5ed9f;
+  font: 600 12px Manrope, sans-serif;
+}
+.recovery-code-panel .recovery-code-reveal code {
+  border: 1px solid #32452d;
+  border-radius: 8px;
+  background: #0b100d;
+  color: #d9f5e5;
+  font: 13px/1.6 'DM Mono', monospace;
+  letter-spacing: .5px;
+}
+.recovery-code-panel .recovery-code-reveal p {
+  color: #9aa69d;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.recovery-pending {
+  gap: 12px;
+  border-color: #5b4a2c;
+  border-radius: 9px;
+  background: #1a1710;
+}
+.recovery-pending > strong {
+  color: #f0d08e;
+  font: 600 13px Manrope, sans-serif;
+}
+.recovery-pending p {
+  color: #a8b0a5;
+  font-size: 11px;
+  line-height: 1.65;
+}
+.recovery-pending label {
+  margin-top: 2px;
+}
+.recovery-countdown {
+  border: 1px solid #57472c;
+  border-radius: 9px;
+  background: #13120e;
+}
+.recovery-countdown span {
+  font: 9px 'DM Mono', monospace;
+}
+.near-diagnostic {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 14px;
+  padding: 15px;
+  border: 1px solid #354238;
+  border-radius: 9px;
+  background: #101611;
+}
+.near-diagnostic-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.near-diagnostic-heading > strong {
+  color: #e0e9e1;
+  font: 600 12px Manrope, sans-serif;
+}
+.near-diagnostic > p {
+  margin: 0;
+  color: #a1ada3;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.near-diagnostic details {
+  min-width: 0;
+  border-top: 1px solid #2b362e;
+  padding-top: 9px;
+}
+.near-diagnostic summary {
+  color: #b8d99e;
+  font: 10px 'DM Mono', monospace;
+  cursor: pointer;
+  outline-offset: 4px;
+}
+.near-diagnostic pre {
+  max-height: 300px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px;
+  border: 1px solid #29352d;
+  border-radius: 7px;
+  background: #090d0a;
+  color: #a8c995;
+  font: 10px/1.6 'DM Mono', monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-prototype-note a,
+.agent-prototype-note a:visited {
+  color: #b8d99e;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.agent-prototype-note a:hover {
+  color: #d6ffaf;
+  text-decoration: underline;
+}
+@media (max-width: 600px) {
+  .near-wallet-panel .panel-heading,
+  .recovery-code-panel .panel-heading {
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .near-wallet-panel .near-wallet-connected {
+    gap: 10px;
+    padding: 13px;
+  }
+  .near-wallet-panel .wallet-link-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .near-wallet-panel .wallet-link-row .scenario-text {
+    flex-basis: calc(100% - 95px);
+  }
+  .wallet-revoke-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wallet-revoke-actions .wallet-revoke-button {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+  .near-wallet-panel .near-transfer-box,
+  .recovery-code-panel .near-transfer-box,
+  .recovery-pending,
+  .near-diagnostic {
+    padding: 13px;
+  }
+  .near-wallet-panel .inspect-button,
+  .near-wallet-panel .outline-button,
+  .recovery-code-panel .inspect-button,
+  .recovery-code-panel .outline-button {
+    min-height: 46px;
+    width: 100%;
+    white-space: normal;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .near-wallet-panel *,
+  .recovery-code-panel * {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
