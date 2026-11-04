@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
-import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413 } from "./recovery-security.ts";
+import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413, verifyNep413WithOptionalCallback } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
@@ -671,7 +671,7 @@ export async function handleRequest(req: Request) {
       if (!findActiveFullAccessKey(accessKeys, challenge.public_key)) {
         return reply({ error: "The signing key is no longer an active FullAccess key." }, 403);
       }
-      const valid = await verifyNep413(
+      const valid = await verifyNep413WithOptionalCallback(
         challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
         challenge.public_key, signedMessage.signature, challenge.callback_url,
       );
