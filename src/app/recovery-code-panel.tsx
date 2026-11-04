@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { inspectRecoveryWalletResponse, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
 
 type HistoricalWallet = { accountId: string; revoked: boolean };
+type ActiveWallet = { accountId: string; publicKey: string; verifiedAt: string; revokedAt: string | null; active: boolean };
 
 function fromHex(value: string): Uint8Array {
   if (!/^(?:[0-9a-f]{2})+$/.test(value)) throw new Error("The recovery challenge was malformed.");
@@ -42,6 +43,7 @@ export function RecoveryCodePanel() {
   const [connectedAccount, setConnectedAccount] = useState("");
   const [hasHistory, setHasHistory] = useState(false);
   const [activeWallet, setActiveWallet] = useState("");
+  const [activeWallets, setActiveWallets] = useState<ActiveWallet[]>([]);
   const [established, setEstablished] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [copied, setCopied] = useState(false);
@@ -72,9 +74,16 @@ export function RecoveryCodePanel() {
         setSelectedWallet(wallets[0]?.accountId ?? "");
         if (status.established === true) {
           const lifecycle = await recoveryRequest({ action: "recovery_lifecycle" });
-          const active = typeof lifecycle.activeWalletAccountId === "string" ? lifecycle.activeWalletAccountId : "";
-          setActiveWallet(active);
-          setSelectedWallet(active);
+          const inventory = await recoveryRequest({ action: "wallet_list" });
+          const linked = (Array.isArray(inventory.wallets) ? inventory.wallets : []) as ActiveWallet[];
+          const activeLinks = linked.filter(wallet => wallet.active === true);
+          const preferred = typeof lifecycle.activeWalletAccountId === "string" &&
+            activeLinks.some(wallet => wallet.accountId === lifecycle.activeWalletAccountId)
+              ? lifecycle.activeWalletAccountId
+              : activeLinks[0]?.accountId ?? "";
+          setActiveWallet(preferred);
+          setActiveWallets(activeLinks);
+          setSelectedWallet(preferred);
         }
         setNotice(status.established
           ? "An independent recovery code is already established. It cannot be displayed again."
@@ -177,17 +186,21 @@ export function RecoveryCodePanel() {
   }
 
   async function resetRecoveryCode() {
-    if (!ready || busy || !established || !activeWallet || recoveryCode) return;
+    if (!ready || busy || !established || !selectedWallet || recoveryCode) return;
     setBusy(true);
     setError("");
     try {
       const connector = connectorRef.current;
-      if (!connector || connectedAccount !== activeWallet) {
-        throw new Error("Connect your currently active registered wallet before resetting the code.");
+      if (!connector || connectedAccount !== selectedWallet) {
+        throw new Error("Connect the selected active registered wallet before resetting the code.");
       }
-      const challenge = await recoveryRequest({ action: "recovery_code_reset_challenge", callbackUrl: window.location.href });
-      if (challenge.accountId !== activeWallet || typeof challenge.publicKey !== "string") {
-        throw new Error("MANDATE did not issue a challenge for your active registered wallet.");
+      const challenge = await recoveryRequest({
+        action: "recovery_code_reset_challenge",
+        accountId: selectedWallet,
+        callbackUrl: window.location.href,
+      });
+      if (challenge.accountId !== selectedWallet || typeof challenge.publicKey !== "string") {
+        throw new Error("MANDATE did not issue a challenge for the selected active registered wallet.");
       }
       // Use a brand-new connector and wallet adapter. Removing the IndexedDB
       // entry from the already-connected adapter is insufficient because its
@@ -238,7 +251,7 @@ export function RecoveryCodePanel() {
         callbackUrl: challenge.callbackUrl,
         nonce: nonceBytes,
         network: "testnet" as const,
-        signerId: activeWallet,
+        signerId: selectedWallet,
       };
       const walletSignedMessage = await wallet.signMessage(walletRequest);
       const diagnostic = await inspectRecoveryWalletResponse({
@@ -286,11 +299,22 @@ export function RecoveryCodePanel() {
         <div className="near-transfer-box">
           <strong>Recovery code already established</strong>
           <p>The original code cannot be displayed again. If you did not save it, you can replace it by proving control of your currently active registered wallet.</p>
-          <p><strong>Active wallet:</strong> {activeWallet || "Could not determine the active wallet."}</p>
-          <button className="outline-button" onClick={connectHistoricalWallet} disabled={!ready || busy || !activeWallet}>
-            {busy ? "Please wait…" : connectedAccount === activeWallet ? "Active wallet connected ✓" : "Connect active wallet"}
+          <label htmlFor="recovery-active-wallet">Choose an active verified wallet</label>
+          <select
+            id="recovery-active-wallet"
+            value={selectedWallet}
+            onChange={event => { setSelectedWallet(event.target.value); setConnectedAccount(""); }}
+          >
+            {activeWallets.map(wallet => (
+              <option key={wallet.accountId} value={wallet.accountId}>
+                {wallet.accountId}
+              </option>
+            ))}
+          </select>
+          <button className="outline-button" onClick={connectHistoricalWallet} disabled={!ready || busy || !selectedWallet}>
+            {busy ? "Please wait…" : connectedAccount === selectedWallet ? "Selected wallet connected ✓" : "Connect selected wallet"}
           </button>
-          <button className="inspect-button" onClick={resetRecoveryCode} disabled={!ready || busy || !activeWallet || connectedAccount !== activeWallet}>
+          <button className="inspect-button" onClick={resetRecoveryCode} disabled={!ready || busy || !selectedWallet || connectedAccount !== selectedWallet}>
             {busy ? "Verifying wallet signature…" : "Reset recovery code →"}
           </button>
           <p>This reset does not change your registered wallet, move funds, or start the 24-hour wallet recovery process.</p>
