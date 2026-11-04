@@ -185,7 +185,7 @@ export function RecoveryCodePanel() {
       if (!connector || connectedAccount !== activeWallet) {
         throw new Error("Connect your currently active registered wallet before resetting the code.");
       }
-      const challenge = await recoveryRequest({ action: "recovery_code_reset_challenge" });
+      const challenge = await recoveryRequest({ action: "recovery_code_reset_challenge", callbackUrl: window.location.href });
       if (challenge.accountId !== activeWallet || typeof challenge.publicKey !== "string") {
         throw new Error("MANDATE did not issue a challenge for your active registered wallet.");
       }
