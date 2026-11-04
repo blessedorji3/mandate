@@ -4,7 +4,8 @@ alter table mandate_private.near_wallet_recovery_reset_challenges
 
 -- Existing rows cannot be used for verification after this change; they are short-lived.
 update mandate_private.near_wallet_recovery_reset_challenges
-  set consumed_at = coalesce(consumed_at, now())
+  set consumed_at = coalesce(consumed_at, now()),
+      callback_url = 'https://invalidated-challenge.mandate.invalid'
   where callback_url is null;
 
 alter table mandate_private.near_wallet_recovery_reset_challenges
