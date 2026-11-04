@@ -276,6 +276,121 @@ export async function handleRequest(req: Request) {
   if (!isRecord(body) || typeof body.action !== "string") return reply({ error: "An action is required." }, 400);
 
   try {
+    if (body.action === "wallet_list") {
+      const { data, error } = await admin.rpc("list_near_owner_wallets_v1", {
+        p_owner_id: user.id,
+      });
+      if (error) throw new Error("Could not load your registered wallet inventory");
+      const wallets = Array.isArray(data) ? data : [];
+      return reply({
+        wallets: wallets.map((wallet: Record<string, unknown>) => ({
+          accountId: wallet.account_id,
+          publicKey: wallet.public_key,
+          verifiedAt: wallet.verified_at,
+          revokedAt: wallet.revoked_at,
+          active: wallet.revoked_at === null,
+        })),
+      });
+    }
+
+    if (body.action === "wallet_revoke_challenge") {
+      const targetAccountId = body.targetAccountId;
+      const signerAccountId = body.signerAccountId;
+      if (typeof targetAccountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(targetAccountId) ||
+          typeof signerAccountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(signerAccountId) ||
+          targetAccountId === signerAccountId) {
+        return reply({ error: "Select a different active verified wallet to authorize this removal." }, 400);
+      }
+
+      const { data: signerRows, error: signerError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: signerAccountId,
+      });
+      const signerWallet = Array.isArray(signerRows) ? signerRows[0] : null;
+      if (signerError || !signerWallet?.public_key) {
+        return reply({ error: "The authorizing wallet is not registered and active on this MANDATE account." }, 403);
+      }
+      const signerKeys = await rpcViewAccessKeys(signerAccountId);
+      if (!findActiveFullAccessKey(signerKeys, signerWallet.public_key)) {
+        return reply({ error: "The authorizing wallet key is no longer an active FullAccess key." }, 403);
+      }
+
+      const challengeId = crypto.randomUUID();
+      const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const message = [
+        "MANDATE NEAR WALLET REMOVAL",
+        "I authorize removing the selected wallet from this MANDATE account. This does not revoke its NEAR on-chain access key or move funds.",
+        `MANDATE owner: ${user.id}`,
+        `Wallet to remove: ${targetAccountId}`,
+        `Authorizing wallet: ${signerAccountId}`,
+        `Authorizing public key: ${signerWallet.public_key}`,
+        `Challenge: ${challengeId}`,
+        `Nonce: ${nonceHex}`,
+      ].join("\n");
+      const { error } = await admin.rpc("create_near_wallet_revoke_challenge_v1", {
+        p_owner_id: user.id,
+        p_id: challengeId,
+        p_target_account_id: targetAccountId,
+        p_signer_account_id: signerAccountId,
+        p_signer_public_key: signerWallet.public_key,
+        p_nonce_hex: nonceHex,
+        p_message: message,
+      });
+      if (error) return reply({ error: error.message || "Could not create wallet-removal challenge." }, 409);
+      return reply({
+        challengeId,
+        targetAccountId,
+        signerAccountId,
+        publicKey: signerWallet.public_key,
+        nonceHex,
+        message,
+        recipient: APP_RECIPIENT,
+        expiresInSeconds: 300,
+      });
+    }
+
+    if (body.action === "wallet_revoke_verify") {
+      const { challengeId, signedMessage } = body;
+      if (typeof challengeId !== "string" || !isRecord(signedMessage) ||
+          typeof signedMessage.accountId !== "string" ||
+          typeof signedMessage.publicKey !== "string" ||
+          typeof signedMessage.signature !== "string") {
+        return reply({ error: "A valid NEP-413 wallet-removal signature is required." }, 400);
+      }
+      const { data: challengeRows, error: challengeError } = await admin.rpc(
+        "get_near_wallet_revoke_challenge_v1",
+        { p_owner_id: user.id, p_id: challengeId },
+      );
+      const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
+      if (challengeError || !challenge ||
+          signedMessage.accountId !== challenge.signer_account_id ||
+          signedMessage.publicKey !== challenge.signer_public_key) {
+        return reply({ error: "Wallet-removal challenge expired, mismatched, or already used." }, 409);
+      }
+
+      const signerKeys = await rpcViewAccessKeys(challenge.signer_account_id);
+      if (!findActiveFullAccessKey(signerKeys, challenge.signer_public_key)) {
+        return reply({ error: "The authorizing key is no longer an active FullAccess key." }, 403);
+      }
+      const valid = await verifyNep413(
+        challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+        challenge.signer_public_key, signedMessage.signature,
+      );
+      if (!valid) return reply({ error: "The wallet-removal signature is invalid." }, 403);
+
+      const { data: revoked, error: revokeError } = await admin.rpc(
+        "complete_near_wallet_revoke_v1",
+        { p_owner_id: user.id, p_id: challenge.id },
+      );
+      if (revokeError || revoked !== true) {
+        return reply({ error: revokeError?.message || "Wallet removal could not be completed. No wallets were changed." }, 409);
+      }
+      return reply({
+        revoked: true,
+        accountId: challenge.target_account_id,
+        message: "Wallet removed from MANDATE. Its NEAR on-chain keys and funds were not changed.",
+      });
+    }
+
     if (body.action === "wallet_status") {
       const { data, error } = await admin.rpc("get_near_owner_wallet_v1", {
         p_owner_id: user.id, p_account_id: body.accountId,
@@ -475,13 +590,16 @@ export async function handleRequest(req: Request) {
       });
       if (lifecycleResult.error) throw new Error("Could not load recovery-code reset status");
       const state = Array.isArray(lifecycleResult.data) ? lifecycleResult.data[0] : null;
-      if (state?.code_established !== true || state?.code_consumed === true || !state?.active_wallet_account_id) {
-        return reply({ error: "An active recovery code and active registered wallet are required." }, 409);
+      if (state?.code_established !== true || state?.code_consumed === true) {
+        return reply({ error: "An active independent recovery code is required." }, 409);
       }
       if (state?.request_status === "pending") {
         return reply({ error: "Recovery-code reset is unavailable while wallet recovery is pending." }, 409);
       }
-      const accountId = state.active_wallet_account_id as string;
+      const accountId = typeof body.accountId === "string" ? body.accountId : state?.active_wallet_account_id;
+      if (typeof accountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(accountId)) {
+        return reply({ error: "Choose an active verified wallet for this recovery-code reset." }, 400);
+      }
       const { data: walletRows, error: walletError } = await admin.rpc("get_near_owner_wallet_v1", {
         p_owner_id: user.id, p_account_id: accountId,
       });
@@ -538,10 +656,9 @@ export async function handleRequest(req: Request) {
       });
       if (lifecycleResult.error) throw new Error("Could not re-check active wallet ownership");
       const state = Array.isArray(lifecycleResult.data) ? lifecycleResult.data[0] : null;
-      if (state?.active_wallet_account_id !== challenge.account_id ||
-          state?.code_established !== true || state?.code_consumed === true ||
+      if (state?.code_established !== true || state?.code_consumed === true ||
           state?.request_status === "pending") {
-        return reply({ error: "The active wallet or recovery status changed. Request a new reset challenge." }, 409);
+        return reply({ error: "The recovery status changed. Request a new reset challenge." }, 409);
       }
       const { data: walletRows, error: walletError } = await admin.rpc("get_near_owner_wallet_v1", {
         p_owner_id: user.id, p_account_id: challenge.account_id,
