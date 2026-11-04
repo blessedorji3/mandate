@@ -5,6 +5,9 @@ export type SafeWalletDiagnostic = {
     id: string | null;
     name: string | null;
     version: string | null;
+    adapterClass: string | null;
+    executorHost: string | null;
+    cachedExecutorCleared: boolean;
   };
   challengeMessageForwardedUnchanged: boolean;
   challengeRecipientForwardedUnchanged: boolean;
