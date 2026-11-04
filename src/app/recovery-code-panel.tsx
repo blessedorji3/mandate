@@ -5,6 +5,7 @@ import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
 import { inspectRecoveryWalletResponse, isSafeRecoveryWalletResponseToSubmit, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
+import { inspectOfficialNep413Response, type OfficialNep413Diagnostic } from "@/lib/official-nep413-diagnostic";
 
 type HistoricalWallet = { accountId: string; revoked: boolean };
 type ActiveWallet = { accountId: string; publicKey: string; verifiedAt: string; revokedAt: string | null; active: boolean };
@@ -53,6 +54,7 @@ export function RecoveryCodePanel() {
   const [notice, setNotice] = useState("Checking independent recovery status…");
   const [safeDiagnostic, setSafeDiagnostic] = useState<SafeWalletDiagnostic | null>(null);
   const [diagnosticSubmission, setDiagnosticSubmission] = useState<"not-submitted" | "submitted" | "verified" | "server-error">("not-submitted");
+  const [officialDiagnostic, setOfficialDiagnostic] = useState<OfficialNep413Diagnostic | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -180,6 +182,97 @@ export function RecoveryCodePanel() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Recovery-code setup failed.");
       setNotice("Recovery code was not established.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runMeteorSignatureDiagnostic() {
+    if (!ready || busy || !established || !selectedWallet || connectedAccount !== selectedWallet) return;
+    setBusy(true);
+    setError("");
+    setOfficialDiagnostic(null);
+    try {
+      const registeredWallet = activeWallets.find(wallet =>
+        wallet.accountId === selectedWallet && wallet.active === true
+      );
+      if (!registeredWallet) {
+        throw new Error("Select an active verified wallet before running the signature diagnostic.");
+      }
+
+      // Reload Meteor's executor in a fresh connector so this diagnostic does
+      // not reuse a stale SandboxExecutor held by the existing connector.
+      const { NearConnector } = await import("@hot-labs/near-connect");
+      const signingConnector = new NearConnector({
+        network: "testnet",
+        features: { testnet: true },
+        autoConnect: false,
+      });
+      await signingConnector.whenManifestLoaded;
+      const signingManifest = signingConnector.manifest.wallets.find(item => item.id === "meteor-wallet");
+      if (!signingManifest || typeof signingManifest.version !== "string" || !signingManifest.version) {
+        throw new Error("Meteor Wallet manifest is unavailable; cannot safely refresh its signing executor.");
+      }
+      const cacheKey = `meteor-wallet:${signingManifest.version}`;
+      await signingConnector.db.removeItem(cacheKey);
+
+      const connected = await signingConnector.getConnectedWallet();
+      if (connected.accounts[0]?.accountId !== selectedWallet) {
+        throw new Error("The freshly loaded connector did not restore your selected active registered wallet.");
+      }
+      const wallet = connected.wallet;
+      if (wallet.manifest?.id !== "meteor-wallet") {
+        throw new Error("The freshly loaded connector did not select Meteor Wallet.");
+      }
+      if (typeof wallet.signMessage !== "function") {
+        throw new Error("This wallet does not support NEP-413 message signing.");
+      }
+
+      // This is an ephemeral, ASCII-only message. It is not a recovery-reset
+      // challenge and is never submitted to Supabase or stored in a database.
+      const nonce = crypto.getRandomValues(new Uint8Array(32));
+      const message = [
+        "MANDATE ASCII NEP-413 DIAGNOSTIC",
+        "Purpose: verify wallet message signing only.",
+        "No recovery code, wallet link, or funds will be changed.",
+        `Account: ${selectedWallet}`,
+        `Challenge: ${crypto.randomUUID()}`,
+      ].join("\\n");
+      const walletResponse = await wallet.signMessage({
+        message,
+        recipient: "mandate-snowy.vercel.app",
+        nonce,
+        network: "testnet",
+        signerId: selectedWallet,
+      });
+
+      let executorHost: string | null = null;
+      try { executorHost = new URL(wallet.manifest.executor).hostname; } catch { /* safe metadata only */ }
+      const diagnostic = await inspectOfficialNep413Response({
+        expectedAccountId: selectedWallet,
+        expectedPublicKey: registeredWallet.publicKey,
+        message,
+        recipient: "mandate-snowy.vercel.app",
+        nonce,
+        walletResponse,
+        walletProvider: {
+          id: wallet.manifest.id,
+          version: signingManifest.version,
+          executorHost,
+          cachedExecutorCleared: true,
+        },
+      });
+      setOfficialDiagnostic(diagnostic);
+
+      if (diagnostic.officialNep413Verification === "valid") {
+        setNotice("The official NEAR NEP-413 verifier accepted the real Meteor Wallet signature. No recovery code, wallet link, or funds were changed.");
+      } else {
+        setNotice("The non-mutating signature diagnostic completed. Read its safe result below; no recovery code, wallet link, or funds were changed.");
+        setError("The official NEAR verifier did not accept this signature, or a required identity/format check failed. The recovery reset was not attempted.");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The non-mutating Meteor signature diagnostic failed.");
+      setNotice("No recovery code, wallet link, or funds were changed.");
     } finally {
       setBusy(false);
     }
@@ -350,6 +443,10 @@ export function RecoveryCodePanel() {
           <button className="outline-button" onClick={connectHistoricalWallet} disabled={!ready || busy || !selectedWallet}>
             {busy ? "Please wait…" : connectedAccount === selectedWallet ? "Selected wallet connected ✓" : "Connect selected wallet"}
           </button>
+          <button className="outline-button" onClick={runMeteorSignatureDiagnostic} disabled={!ready || busy || !selectedWallet || connectedAccount !== selectedWallet}>
+            {busy ? "Testing wallet signature…" : "Test ASCII-only signature (no changes)"}
+          </button>
+          <p>This asks Meteor Wallet to sign a one-time diagnostic message. It does not call the recovery-reset endpoint, change wallet links, or send a transaction.</p>
           <button className="inspect-button" onClick={resetRecoveryCode} disabled={!ready || busy || !selectedWallet || connectedAccount !== selectedWallet}>
             {busy ? "Verifying wallet signature…" : "Reset recovery code →"}
           </button>
@@ -383,6 +480,15 @@ export function RecoveryCodePanel() {
           <code>{recoveryCode}</code>
           <button className="outline-button" onClick={copyRecoveryCode}>{copied ? "Copied ✓" : "Copy recovery code"}</button>
           <p>Store it somewhere private and secure, preferably offline. Do not share it with anyone or paste it into chats. MANDATE stores only a cryptographic hash.</p>
+        </div>
+      )}
+      {officialDiagnostic && (
+        <div className="near-transfer-box" role="status" aria-live="polite">
+          <strong>Official NEAR NEP-413 diagnostic (non-mutating)</strong>
+          <p>{officialDiagnostic.officialNep413Verification === "valid"
+            ? "The official NEAR verifier accepted the signed ASCII challenge. The browser did not check on-chain key permission; Supabase remains responsible for that check during recovery."
+            : "The official NEAR verifier did not accept the signature, or an identity/format check failed. No recovery reset was attempted."}</p>
+          <pre>{JSON.stringify(officialDiagnostic, null, 2)}</pre>
         </div>
       )}
       {safeDiagnostic && (
