@@ -664,13 +664,13 @@ select is(
 
 -- A different MANDATE account cannot claim the wallet, even if it is later revoked.
 select throws_ok(
-  $select public.create_near_wallet_registration_challenge_v1(
+  $multi$select public.create_near_wallet_registration_challenge_v1(
     '10000000-0000-4000-8000-000000000002',
     'a1000000-0000-4000-8000-000000000002',
     'second-wallet-a.testnet',
     repeat('b',64),
     'cross-account wallet claim'
-  )$,
+  )$multi$,
   'P0001',
   'This NEAR account is permanently associated with another MANDATE account',
   'another MANDATE owner cannot start linking a wallet already bound to owner A'
@@ -728,7 +728,7 @@ select is(
 );
 
 select throws_ok(
-  $select public.create_near_wallet_revoke_challenge_v1(
+  $multi$select public.create_near_wallet_revoke_challenge_v1(
     '10000000-0000-4000-8000-000000000001',
     'a2000000-0000-4000-8000-000000000002',
     'second-wallet-a.testnet',
@@ -736,19 +736,19 @@ select throws_ok(
     'ed25519:' || repeat('2',44),
     repeat('d',64),
     'attempt to remove the last active wallet'
-  )$,
+  )$multi$,
   'P0001',
   'The last active MANDATE wallet can only be replaced through 24-hour recovery',
   'the last active wallet cannot be removed without the independent-factor recovery flow'
 );
 select throws_ok(
-  $select public.create_near_wallet_registration_challenge_v1(
+  $multi$select public.create_near_wallet_registration_challenge_v1(
     '10000000-0000-4000-8000-000000000002',
     'a1000000-0000-4000-8000-000000000003',
     'new-wallet-a.testnet',
     repeat('e',64),
     'attempt to reclaim a revoked wallet from another owner'
-  )$,
+  )$multi$,
   'P0001',
   'This NEAR account is permanently associated with another MANDATE account',
   'revoked wallet history cannot be reassigned to another MANDATE account'
