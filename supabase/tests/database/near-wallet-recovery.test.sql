@@ -721,6 +721,16 @@ insert into mandate_private.near_transfer_receipts (
   now()+interval '2 minutes', now(), repeat('9',64)
 );
 
+-- A registration challenge opened before revocation must not be able to
+-- re-link the same wallet after revocation commits.
+select public.create_near_wallet_registration_challenge_v1(
+  '10000000-0000-4000-8000-000000000001',
+  'a3000000-0000-4000-8000-000000000001',
+  'new-wallet-a.testnet',
+  repeat('f',64),
+  'stale pre-revocation registration challenge'
+);
+
 -- Revoking one wallet requires a different active wallet and leaves the other intact.
 select is(
   public.create_near_wallet_revoke_challenge_v1(
@@ -772,6 +782,22 @@ select ok(
    from mandate_private.near_transfer_receipts
    where id='50000000-0000-4000-8000-000000000012'),
   'revoking a wallet invalidates unused and consumed-but-unbound transfer receipts'
+);
+
+select ok(
+  (select consumed_at is not null
+   from mandate_private.near_wallet_registration_challenges
+   where id='a3000000-0000-4000-8000-000000000001'),
+  'revocation consumes a stale wallet-registration challenge for the removed wallet'
+);
+select is(
+  public.complete_near_wallet_registration_v1(
+    '10000000-0000-4000-8000-000000000001',
+    'a3000000-0000-4000-8000-000000000001',
+    'ed25519:' || repeat('2',44)
+  ),
+  false,
+  'a stale pre-revocation registration challenge cannot re-link the removed wallet'
 );
 select is(
   public.complete_near_wallet_revoke_v1(
