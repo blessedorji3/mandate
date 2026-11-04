@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { ed25519 } from "npm:@noble/curves@2.2.0/ed25519.js";
+import { KeyPairEd25519, KeyPairSigner } from "npm:near-api-js@7.3.1";
 import {
   findActiveFullAccessKey,
   isDifferentReplacementWallet,
@@ -18,6 +19,71 @@ Deno.test("accepts a valid NEP-413 signature from the NEAR-compatible Noble Ed25
   const publicKey = "ed25519:" + recoveryTestUtils.base58Encode(rawPublicKey);
   const signature = await signNep413(secretKey, message, nonce, recipient);
   assert(await verifyNep413(message, nonce, recipient, publicKey, signature));
+});
+
+Deno.test("accepts the exact Unicode recovery-reset message from the official NEAR NEP-413 signer", async () => {
+  const signer = new KeyPairSigner(KeyPairEd25519.fromRandom());
+  const publicKey = (await signer.getPublicKey()).toString();
+  const challengeNonce = crypto.getRandomValues(new Uint8Array(32));
+  const nonceHex = Array.from(challengeNonce, (value) => value.toString(16).padStart(2, "0")).join("");
+  const callbackUrl = "https://mandate-snowy.vercel.app/wallet";
+  const challengeMessage = [
+    "MANDATE RECOVERY CODE RESET — WALLET OWNERSHIP PROOF",
+    "I authorize replacing only my MANDATE independent recovery code. This does not replace or revoke any wallet, move funds, or start the 24-hour wallet recovery process.",
+    "MANDATE owner: 00000000-0000-4000-8000-000000000001",
+    "Active NEAR account: mandate-diagnostic.testnet",
+    `Active NEAR public key: ${publicKey}`,
+    "Challenge: 00000000-0000-4000-8000-000000000002",
+    `Nonce: ${nonceHex}`,
+  ].join("\n");
+
+  // Match the production reset flow: Meteor signs the message with no NEP-413
+  // callback URL even though the connector request may contain one.
+  const noneSigned = await signer.signNep413Message("mandate-diagnostic.testnet", {
+    message: challengeMessage,
+    recipient,
+    nonce: challengeNonce,
+  });
+  const noneSignature = btoa(String.fromCharCode(...noneSigned.signature));
+  assert(await verifyNep413WithOptionalCallback(
+    challengeMessage,
+    challengeNonce,
+    recipient,
+    noneSigned.publicKey.toString(),
+    noneSignature,
+    callbackUrl,
+  ));
+
+  // Also prove the explicit Some(callbackUrl) form is verified when a wallet
+  // actually signs that form.
+  const callbackSigned = await signer.signNep413Message("mandate-diagnostic.testnet", {
+    message: challengeMessage,
+    recipient,
+    nonce: challengeNonce,
+    callbackUrl,
+  });
+  const callbackSignature = btoa(String.fromCharCode(...callbackSigned.signature));
+  assert(await verifyNep413WithOptionalCallback(
+    challengeMessage,
+    challengeNonce,
+    recipient,
+    callbackSigned.publicKey.toString(),
+    callbackSignature,
+    callbackUrl,
+  ));
+
+  assertEquals(
+    await verifyNep413WithOptionalCallback(
+      challengeMessage.replace("—", "-"),
+      challengeNonce,
+      recipient,
+      noneSigned.publicKey.toString(),
+      noneSignature,
+      callbackUrl,
+    ),
+    false,
+    "the exact Unicode message remains bound to the signature",
+  );
 });
 
 Deno.test("rejects a signature if message, nonce, or recipient is substituted", async () => {
