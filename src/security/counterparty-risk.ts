@@ -171,8 +171,19 @@ export function evaluateCounterpartyRisk(
   const signals = data.signals;
   const reasons: string[] = [];
   let outcome: RiskOutcome = "ALLOW";
-  const warn = (reason: string) => { if (outcome !== "BLOCK") outcome = "WARN"; reasons.push(reason); };
-  const block = (reason: string) => { outcome = "BLOCK"; reasons.push(reason); };
+  let requiresHumanApproval = false;
+  const warn = (reason: string) => {
+    if (outcome !== "BLOCK") {
+      outcome = "WARN";
+      requiresHumanApproval = true;
+    }
+    reasons.push(reason);
+  };
+  const block = (reason: string) => {
+    outcome = "BLOCK";
+    requiresHumanApproval = false;
+    reasons.push(reason);
+  };
 
   const seen = new Set<string>();
   for (const signal of signals) {
@@ -257,6 +268,6 @@ export function evaluateCounterpartyRisk(
     evidence: signals.map((signal) => ({ ...signal })),
     accountId: data.accountId,
     evaluatedAt: data.evaluatedAt,
-    requiresHumanApproval: outcome === "WARN",
+    requiresHumanApproval,
   };
 }
