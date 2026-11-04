@@ -644,6 +644,13 @@ begin
     and id <> c.id
     and consumed_at is null
     and (target_account_id = c.target_account_id or signer_account_id = c.target_account_id);
+  -- A registration challenge created before this revocation must not re-link
+  -- the just-revoked wallet after the revocation transaction commits.
+  update mandate_private.near_wallet_registration_challenges
+  set consumed_at = now()
+  where owner_id = p_owner_id
+    and account_id = c.target_account_id
+    and consumed_at is null;
 
   insert into mandate_private.near_wallet_events
     (owner_id, account_id, event_type, actor_account_id)
