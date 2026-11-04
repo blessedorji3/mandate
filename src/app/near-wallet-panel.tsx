@@ -379,33 +379,36 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
           <p>Each listed wallet has been independently verified. Browser disconnect does not remove a wallet from this list.</p>
           <div className="scenario-list">
             {wallets.map(wallet => (
-              <div className="scenario" key={wallet.accountId}>
+              <div className="scenario wallet-link-row" key={wallet.accountId}>
                 <span className="scenario-text">
                   <strong>{wallet.accountId}</strong>
                   <small>{wallet.active ? "Active and verified" : "Revoked in MANDATE"} · Verified {new Date(wallet.verifiedAt).toLocaleDateString()}</small>
                 </span>
-                <span className="muted-tag">{wallet.active ? "ACTIVE" : "REVOKED"}</span>
+                <span className={`wallet-link-status ${wallet.active ? "is-active" : "is-revoked"}`}>{wallet.active ? "ACTIVE" : "REVOKED"}</span>
               </div>
             ))}
           </div>
           {wallets.filter(wallet => wallet.active && wallet.accountId !== accountId).length > 0 && (
-            <div>
-              <label htmlFor="mandate-wallet-remove">Remove a linked wallet</label>
-              <select
-                id="mandate-wallet-remove"
-                value={walletToRevoke}
-                onChange={event => setWalletToRevoke(event.target.value)}
-                disabled={busy || !walletRegistered}
-              >
-                <option value="">Choose another active wallet</option>
-                {wallets.filter(wallet => wallet.active && wallet.accountId !== accountId).map(wallet => (
-                  <option key={wallet.accountId} value={wallet.accountId}>{wallet.accountId}</option>
-                ))}
-              </select>
-              <button className="outline-button" onClick={revokeSelectedWallet} disabled={busy || !walletRegistered || !walletToRevoke}>
-                {busy ? "Please wait…" : "Verify & remove selected wallet"}
-              </button>
-              <p>Removal requires a fresh signature from the different connected wallet. The last active wallet cannot be removed this way; use the existing 24-hour recovery process for that.</p>
+            <div className="wallet-revoke-controls">
+              <label className="wallet-revoke-label" htmlFor="mandate-wallet-remove">Remove a linked wallet</label>
+              <div className="wallet-revoke-actions">
+                <select
+                  id="mandate-wallet-remove"
+                  value={walletToRevoke}
+                  onChange={event => setWalletToRevoke(event.target.value)}
+                  disabled={busy || !walletRegistered}
+                  aria-describedby="wallet-removal-help"
+                >
+                  <option value="">Choose another active wallet</option>
+                  {wallets.filter(wallet => wallet.active && wallet.accountId !== accountId).map(wallet => (
+                    <option key={wallet.accountId} value={wallet.accountId}>{wallet.accountId}</option>
+                  ))}
+                </select>
+                <button className="outline-button wallet-revoke-button" onClick={revokeSelectedWallet} disabled={busy || !walletRegistered || !walletToRevoke}>
+                  {busy ? "Please wait…" : "Verify & remove selected wallet"}
+                </button>
+              </div>
+              <p id="wallet-removal-help">Removal requires a fresh signature from the different connected wallet. The last active wallet cannot be removed this way; use the existing 24-hour recovery process for that.</p>
             </div>
           )}
         </div>

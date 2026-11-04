@@ -505,8 +505,13 @@ export function RecoveryCodePanel() {
         </div>
       )}
       {officialDiagnostic && (
-        <div className="near-transfer-box" role="status" aria-live="polite">
-          <strong>Official NEAR NEP-413 diagnostic (non-mutating)</strong>
+        <div className="near-diagnostic" role="status" aria-live="polite">
+          <div className="near-diagnostic-heading">
+            <strong>Official NEAR NEP-413 diagnostic</strong>
+            <span className={`diagnostic-pill ${officialDiagnostic.officialNep413Verification === "valid" ? "is-valid" : "is-invalid"}`}>
+              {officialDiagnostic.officialNep413Verification === "valid" ? "SIGNATURE VALID" : "CHECK FAILED"}
+            </span>
+          </div>
           <p>{officialDiagnostic.officialNep413Verification === "valid"
             ? diagnosticSubmission === "verified"
               ? "The official NEAR verifier accepted the exact recovery-reset message, and Supabase confirmed the one-time credential rotation."
@@ -514,12 +519,28 @@ export function RecoveryCodePanel() {
                 ? "The official NEAR verifier accepted the exact recovery-reset message, but Supabase did not confirm the reset. Do not assume the recovery code changed."
                 : "The official NEAR verifier accepted the exact recovery-reset message. Supabase still performs the authoritative active FullAccess check and one-time credential rotation."
             : "The official NEAR verifier did not accept the exact recovery-reset message, or an identity/format check failed. The response was not submitted."}</p>
-          <pre>{JSON.stringify(officialDiagnostic, null, 2)}</pre>
+          <details>
+            <summary>View technical diagnostic details</summary>
+            <pre>{JSON.stringify(officialDiagnostic, null, 2)}</pre>
+          </details>
         </div>
       )}
       {safeDiagnostic && (
-        <div className="near-transfer-box" role="status" aria-live="polite">
-          <strong>Wallet signing diagnostics</strong>
+        <div className="near-diagnostic" role="status" aria-live="polite">
+          <div className="near-diagnostic-heading">
+            <strong>Wallet signing diagnostics</strong>
+            <span className={`diagnostic-pill ${diagnosticSubmission === "verified" || (diagnosticSubmission === "not-submitted" && safeDiagnostic.localEd25519Verification === "valid") ? "is-valid" : diagnosticSubmission === "server-error" ? "is-invalid" : "is-neutral"}`}>
+              {diagnosticSubmission === "verified"
+                ? "RESET VERIFIED"
+                : diagnosticSubmission === "submitted"
+                  ? "SERVER CHECKING"
+                  : diagnosticSubmission === "server-error"
+                    ? "RESET NOT CONFIRMED"
+                    : safeDiagnostic.localEd25519Verification === "valid"
+                      ? "LOCAL SIGNATURE VALID"
+                      : "NEEDS REVIEW"}
+            </span>
+          </div>
           <p>{diagnosticSubmission === "not-submitted"
             ? "The browser checks challenge identity and signature encoding. Its local cryptographic result is informational only; Supabase performs the authoritative signature verification before any reset."
             : diagnosticSubmission === "submitted"
@@ -527,7 +548,10 @@ export function RecoveryCodePanel() {
               : diagnosticSubmission === "verified"
                 ? "Supabase accepted the wallet signature and confirmed the recovery-code reset."
                 : "The server did not confirm the reset. Read the error above; do not assume the recovery code changed."}</p>
-          <pre>{JSON.stringify(safeDiagnostic, null, 2)}</pre>
+          <details>
+            <summary>View technical diagnostic details</summary>
+            <pre>{JSON.stringify(safeDiagnostic, null, 2)}</pre>
+          </details>
         </div>
       )}
       {error && <p className="near-wallet-error" role="alert">{error}</p>}
