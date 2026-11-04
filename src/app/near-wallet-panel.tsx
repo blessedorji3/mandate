@@ -24,6 +24,14 @@ async function authorizationRequest(body: Record<string, unknown>) {
   return data as Record<string, any>;
 }
 
+type OwnerWallet = {
+  accountId: string;
+  publicKey: string;
+  verifiedAt: string;
+  revokedAt: string | null;
+  active: boolean;
+};
+
 export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const connectorRef = useRef<NearConnector | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -35,6 +43,15 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const [receipt, setReceipt] = useState("");
   const [authorizationConsumed, setAuthorizationConsumed] = useState(false);
   const [walletRegistered, setWalletRegistered] = useState(false);
+  const [wallets, setWallets] = useState<OwnerWallet[]>([]);
+  const [walletToRevoke, setWalletToRevoke] = useState("");
+
+  async function refreshWallets(): Promise<OwnerWallet[]> {
+    const data = await authorizationRequest({ action: "wallet_list" });
+    const rows = (Array.isArray(data.wallets) ? data.wallets : []) as OwnerWallet[];
+    setWallets(rows);
+    return rows;
+  }
 
   useEffect(() => {
     let active = true;
@@ -71,18 +88,22 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
         setReady(true);
 
         try {
+          const inventory = await refreshWallets();
           const connected = await connector.getConnectedWallet();
           if (active) {
             const restored = connected.accounts[0]?.accountId ?? null;
             setAccountId(restored);
             if (restored) {
-              const status = await authorizationRequest({ action: "wallet_status", accountId: restored });
-              if (active) { setWalletRegistered(status.registered === true); setNotice(status.registered ? "Registered owner wallet verified." : "Register this wallet before making transfers."); }
+              const registered = inventory.some(wallet => wallet.accountId === restored && wallet.active);
+              setWalletRegistered(registered);
+              setNotice(registered ? "Connected wallet is verified on this MANDATE account." : "This wallet is not linked yet. Verify it before using it.");
+            } else {
+              setWalletRegistered(false);
+              setNotice("Your linked-wallet inventory is ready. Connect a wallet to add or use it.");
             }
-            else setNotice("Ready to connect a NEAR Testnet wallet.");
           }
         } catch {
-          if (active) setNotice("Ready to connect a NEAR Testnet wallet.");
+          if (active) setNotice("Wallet inventory could not be loaded. Refresh before authorizing transfers.");
         }
       } catch {
         if (active) {
@@ -115,9 +136,10 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
         const connectedAccount = connected.accounts[0]?.accountId ?? null;
         setAccountId(connectedAccount);
         if (connectedAccount) {
-          const status = await authorizationRequest({ action: "wallet_status", accountId: connectedAccount });
-          setWalletRegistered(status.registered === true);
-          setNotice(status.registered ? "Registered owner wallet verified." : "Register this wallet before making transfers.");
+          const inventory = await refreshWallets();
+          const registered = inventory.some(wallet => wallet.accountId === connectedAccount && wallet.active);
+          setWalletRegistered(registered);
+          setNotice(registered ? "Connected wallet is verified on this MANDATE account." : "This wallet is not linked yet. Verify it to add it to this account.");
         }
       } catch {
         // The wallet sign-in event will update the connected account.
@@ -161,11 +183,56 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       });
       const result = await authorizationRequest({ action: "register_wallet_verify", challengeId: challenge.challengeId, signedMessage });
       if (result.registered !== true || result.accountId !== accountId) throw new Error("MANDATE did not confirm this wallet registration.");
-      setWalletRegistered(true); setNotice("Wallet ownership verified and registered to your MANDATE account.");
+      await refreshWallets();
+      setWalletRegistered(true); setNotice("Wallet ownership verified and added to your MANDATE account.");
     } catch (cause) {
       setWalletRegistered(false); setError(cause instanceof Error ? cause.message : "Wallet registration failed.");
       setNotice("Wallet is not registered. Transfers remain disabled.");
     } finally { setBusy(false); }
+  }
+
+  async function revokeSelectedWallet() {
+    const connector = connectorRef.current;
+    const targetAccountId = walletToRevoke;
+    if (!connector || !accountId || !walletRegistered || !targetAccountId ||
+        targetAccountId === accountId || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const challenge = await authorizationRequest({
+        action: "wallet_revoke_challenge",
+        targetAccountId,
+        signerAccountId: accountId,
+      });
+      const wallet = await connector.wallet();
+      if (typeof wallet.signMessage !== "function") {
+        throw new Error("This wallet does not support NEP-413 message signing.");
+      }
+      setNotice("Review the wallet-removal request. This removes the selected wallet from MANDATE only; it does not move funds or revoke NEAR keys.");
+      const signedMessage = await wallet.signMessage({
+        message: challenge.message,
+        recipient: challenge.recipient,
+        nonce: fromHex(challenge.nonceHex),
+        network: "testnet",
+        signerId: accountId,
+      });
+      const result = await authorizationRequest({
+        action: "wallet_revoke_verify",
+        challengeId: challenge.challengeId,
+        signedMessage,
+      });
+      if (result.revoked !== true || result.accountId !== targetAccountId) {
+        throw new Error("MANDATE did not confirm removal of the selected wallet.");
+      }
+      const inventory = await refreshWallets();
+      setWalletToRevoke("");
+      setNotice(`${targetAccountId} was removed from MANDATE. Its NEAR on-chain keys and funds were not changed.`);
+      setWalletRegistered(inventory.some(wallet => wallet.accountId === accountId && wallet.active));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not remove this wallet from MANDATE.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function retryTransactionVerification() {
@@ -304,6 +371,43 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
           <button className="inspect-button" onClick={connectWallet} disabled={!ready || busy}>
             {busy ? "Connecting…" : "Connect NEAR wallet →"}
           </button>
+        </div>
+      )}
+      {wallets.length > 0 && (
+        <div className="near-transfer-box">
+          <strong>Your MANDATE wallet links</strong>
+          <p>Each listed wallet has been independently verified. Browser disconnect does not remove a wallet from this list.</p>
+          <div className="scenario-list">
+            {wallets.map(wallet => (
+              <div className="scenario" key={wallet.accountId}>
+                <span className="scenario-text">
+                  <strong>{wallet.accountId}</strong>
+                  <small>{wallet.active ? "Active and verified" : "Revoked in MANDATE"} · Verified {new Date(wallet.verifiedAt).toLocaleDateString()}</small>
+                </span>
+                <span className="muted-tag">{wallet.active ? "ACTIVE" : "REVOKED"}</span>
+              </div>
+            ))}
+          </div>
+          {wallets.filter(wallet => wallet.active && wallet.accountId !== accountId).length > 0 && (
+            <div>
+              <label htmlFor="mandate-wallet-remove">Remove a linked wallet</label>
+              <select
+                id="mandate-wallet-remove"
+                value={walletToRevoke}
+                onChange={event => setWalletToRevoke(event.target.value)}
+                disabled={busy || !walletRegistered}
+              >
+                <option value="">Choose another active wallet</option>
+                {wallets.filter(wallet => wallet.active && wallet.accountId !== accountId).map(wallet => (
+                  <option key={wallet.accountId} value={wallet.accountId}>{wallet.accountId}</option>
+                ))}
+              </select>
+              <button className="outline-button" onClick={revokeSelectedWallet} disabled={busy || !walletRegistered || !walletToRevoke}>
+                {busy ? "Please wait…" : "Verify & remove selected wallet"}
+              </button>
+              <p>Removal requires a fresh signature from the different connected wallet. The last active wallet cannot be removed this way; use the existing 24-hour recovery process for that.</p>
+            </div>
+          )}
         </div>
       )}
       {accountId && !walletRegistered && (
