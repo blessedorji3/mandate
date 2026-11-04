@@ -229,7 +229,7 @@ export function RecoveryLifecyclePanel() {
             <span>{secondsRemaining > 0 ? "TIME UNTIL FINALIZATION" : "WAITING PERIOD COMPLETE"}</span>
             <strong>{formatRemaining(secondsRemaining)}</strong>
           </div>
-          <p>During this period, MANDATE blocks new financial authorizations and invalidates outstanding transfer challenges and receipts. The old wallet remains registered until successful finalization.</p>
+          <p>During this period, MANDATE blocks new financial authorizations and invalidates outstanding transfer challenges and receipts. All existing wallet links remain unchanged until finalization. After the final signature, every existing active wallet link will be revoked in MANDATE and only the replacement wallet will remain active. NEAR on-chain keys and funds are not changed by this process.</p>
           {secondsRemaining === 0 && (
             <button className="inspect-button" onClick={finalizeRecovery} disabled={busy || accountId !== request.newAccountId}>
               {busy ? "Verifying replacement…" : "Sign & finalize wallet replacement →"}
@@ -246,7 +246,7 @@ export function RecoveryLifecyclePanel() {
         </div>
       ) : (
         <div className="near-transfer-box">
-          <p>To replace a lost or compromised wallet, connect the new NEAR Testnet wallet and provide your independent recovery code. This starts a 24-hour security delay.</p>
+          <p>To replace the wallet set after loss or compromise, connect a replacement NEAR Testnet wallet and provide your independent recovery code. This starts a 24-hour security delay. Finalization revokes every existing active wallet link in MANDATE and leaves only the replacement wallet active; it does not revoke on-chain keys or move funds.</p>
           <button className="outline-button" onClick={connectReplacementWallet} disabled={!ready || busy}>
             {busy ? "Please wait…" : accountId ? `Connected: ${accountId}` : "Connect replacement wallet"}
           </button>
