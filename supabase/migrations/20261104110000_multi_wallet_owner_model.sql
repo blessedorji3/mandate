@@ -447,7 +447,7 @@ begin
       select 1 from mandate_private.near_owner_wallets
       where account_id = p_account_id and owner_id <> p_owner_id
     ) then
-      raise exception 'The replacement NEAR wallet is permanently associated with another MANDATE account';
+      raise exception 'The replacement NEAR wallet is already active under another MANDATE account';
     end if;
 
     if exists (
