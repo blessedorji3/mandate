@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
-import { inspectRecoveryWalletResponse, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
+import { inspectRecoveryWalletResponse, isSafeRecoveryWalletResponseToSubmit, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 
 type HistoricalWallet = { accountId: string; revoked: boolean };
@@ -52,6 +52,7 @@ export function RecoveryCodePanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("Checking independent recovery status…");
   const [safeDiagnostic, setSafeDiagnostic] = useState<SafeWalletDiagnostic | null>(null);
+  const [diagnosticSubmission, setDiagnosticSubmission] = useState<"not-submitted" | "submitted" | "verified" | "server-error">("not-submitted");
 
   useEffect(() => {
     let active = true;
@@ -188,6 +189,8 @@ export function RecoveryCodePanel() {
     if (!ready || busy || !established || !selectedWallet || recoveryCode) return;
     setBusy(true);
     setError("");
+    setSafeDiagnostic(null);
+    setDiagnosticSubmission("not-submitted");
     try {
       const connector = connectorRef.current;
       if (!connector || connectedAccount !== selectedWallet) {
@@ -270,31 +273,30 @@ export function RecoveryCodePanel() {
       });
       setSafeDiagnostic(diagnostic);
 
-      const matchesExactChallenge =
-        diagnostic.challengeMessageForwardedUnchanged &&
-        diagnostic.challengeRecipientForwardedUnchanged &&
-        diagnostic.serverExpectedRecipientMatches &&
-        diagnostic.nonceLengthValid &&
-        diagnostic.returnedAccountMatches &&
-        diagnostic.returnedPublicKeyMatches &&
-        diagnostic.signatureEncodingValid &&
-        (
-          diagnostic.callbackVariantVerification.challengeCallbackUrl === "valid" ||
-          diagnostic.callbackVariantVerification.none === "valid"
-        );
-      if (!matchesExactChallenge) {
+      // The browser diagnostic is informational, not an authentication decision.
+      // Submit an exact, correctly shaped response so Supabase can independently
+      // verify NEP-413, the active FullAccess key, owner, nonce, recipient,
+      // challenge expiry and one-time database completion.
+      if (!isSafeRecoveryWalletResponseToSubmit(diagnostic)) {
         throw new Error(
-          "The wallet signature did not match this exact MANDATE challenge. No recovery-code reset was submitted; your existing code remains unchanged.",
+          "The wallet response did not match the expected challenge, account, public key, nonce or signature format. It was not submitted; your existing recovery code remains unchanged.",
         );
       }
 
-      setNotice("Wallet signature matches the exact challenge. MANDATE is independently verifying it and preparing the one-time recovery-code replacement…");
+      setDiagnosticSubmission("submitted");
+      setNotice("Signed response submitted. Supabase is independently verifying the NEP-413 signature and active wallet before changing your recovery code…");
       const normalizedSignature = normalizeNearSignedMessage(walletSignedMessage);
-      const result = await recoveryRequest({
-        action: "recovery_code_reset_verify",
-        challengeId: challenge.challengeId,
-        signedMessage: normalizedSignature,
-      });
+      let result: Record<string, any>;
+      try {
+        result = await recoveryRequest({
+          action: "recovery_code_reset_verify",
+          challengeId: challenge.challengeId,
+          signedMessage: normalizedSignature,
+        });
+      } catch (cause) {
+        setDiagnosticSubmission("server-error");
+        throw cause;
+      }
       if (
         result.reset !== true ||
         typeof result.recoveryCode !== "string" ||
@@ -302,6 +304,7 @@ export function RecoveryCodePanel() {
       ) {
         throw new Error("MANDATE did not confirm the recovery-code reset. Your existing recovery code remains unchanged.");
       }
+      setDiagnosticSubmission("verified");
       setRecoveryCode(result.recoveryCode);
       setCopied(false);
       setNotice("Recovery code reset successfully. Save the new code now; the previous code is no longer valid. Your registered wallet was not changed.");
@@ -384,8 +387,14 @@ export function RecoveryCodePanel() {
       )}
       {safeDiagnostic && (
         <div className="near-transfer-box" role="status" aria-live="polite">
-          <strong>Safe wallet signing diagnostic</strong>
-          <p>Diagnostic-only run: the signed response was not submitted to the reset endpoint.</p>
+          <strong>Wallet signing diagnostics</strong>
+          <p>{diagnosticSubmission === "not-submitted"
+            ? "The browser checks challenge identity and signature encoding. Its local cryptographic result is informational only; Supabase performs the authoritative signature verification before any reset."
+            : diagnosticSubmission === "submitted"
+              ? "The signed response has been submitted. Supabase is verifying the signature and wallet ownership."
+              : diagnosticSubmission === "verified"
+                ? "Supabase accepted the wallet signature and confirmed the recovery-code reset."
+                : "The server did not confirm the reset. Read the error above; do not assume the recovery code changed."}</p>
           <pre>{JSON.stringify(safeDiagnostic, null, 2)}</pre>
         </div>
       )}

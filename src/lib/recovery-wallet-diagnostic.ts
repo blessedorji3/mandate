@@ -176,3 +176,23 @@ export async function inspectRecoveryWalletResponse(input: {
     callbackVariantVerification,
   };
 }
+
+
+/**
+ * Browser-side signature diagnostics are informative only. This predicate
+ * checks that a response is structurally bound to the fresh challenge;
+ * Supabase remains the sole authority for NEP-413 cryptographic verification
+ * and one-time recovery credential rotation.
+ */
+export function isSafeRecoveryWalletResponseToSubmit(
+  diagnostic: SafeWalletDiagnostic,
+): boolean {
+  return diagnostic.challengeMessageForwardedUnchanged &&
+    diagnostic.challengeRecipientForwardedUnchanged &&
+    diagnostic.serverExpectedRecipientMatches &&
+    diagnostic.nonceLengthValid &&
+    diagnostic.returnedAccountMatches &&
+    diagnostic.returnedPublicKeyMatches &&
+    diagnostic.signatureEncodingValid &&
+    diagnostic.signatureLengthBytes === 64;
+}
