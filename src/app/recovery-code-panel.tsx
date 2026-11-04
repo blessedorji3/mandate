@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
 import { inspectRecoveryWalletResponse, type SafeWalletDiagnostic } from "@/lib/recovery-wallet-diagnostic";
+import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 
 type HistoricalWallet = { accountId: string; revoked: boolean };
 type ActiveWallet = { accountId: string; publicKey: string; verifiedAt: string; revokedAt: string | null; active: boolean };
@@ -268,8 +269,42 @@ export function RecoveryCodePanel() {
         walletResponse: walletSignedMessage,
       });
       setSafeDiagnostic(diagnostic);
-      setNotice("Diagnostic captured. No recovery-code reset was submitted; your existing recovery code remains unchanged.");
-      return;
+
+      const matchesExactChallenge =
+        diagnostic.challengeMessageForwardedUnchanged &&
+        diagnostic.challengeRecipientForwardedUnchanged &&
+        diagnostic.serverExpectedRecipientMatches &&
+        diagnostic.nonceLengthValid &&
+        diagnostic.returnedAccountMatches &&
+        diagnostic.returnedPublicKeyMatches &&
+        diagnostic.signatureEncodingValid &&
+        (
+          diagnostic.callbackVariantVerification.challengeCallbackUrl === "valid" ||
+          diagnostic.callbackVariantVerification.none === "valid"
+        );
+      if (!matchesExactChallenge) {
+        throw new Error(
+          "The wallet signature did not match this exact MANDATE challenge. No recovery-code reset was submitted; your existing code remains unchanged.",
+        );
+      }
+
+      setNotice("Wallet signature matches the exact challenge. MANDATE is independently verifying it and preparing the one-time recovery-code replacement…");
+      const normalizedSignature = normalizeNearSignedMessage(walletSignedMessage);
+      const result = await recoveryRequest({
+        action: "recovery_code_reset_verify",
+        challengeId: challenge.challengeId,
+        signedMessage: normalizedSignature,
+      });
+      if (
+        result.reset !== true ||
+        typeof result.recoveryCode !== "string" ||
+        !/^MND-[0-9A-F]{64}$/.test(result.recoveryCode)
+      ) {
+        throw new Error("MANDATE did not confirm the recovery-code reset. Your existing recovery code remains unchanged.");
+      }
+      setRecoveryCode(result.recoveryCode);
+      setCopied(false);
+      setNotice("Recovery code reset successfully. Save the new code now; the previous code is no longer valid. Your registered wallet was not changed.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Recovery-code reset failed.");
       setNotice("Recovery code was not reset.");
