@@ -15,6 +15,12 @@ export type SafeWalletDiagnostic = {
   signatureEncodingValid: boolean;
   serverPayloadReconstruction: "SHA-256 digest generated" | "failed";
   localEd25519Verification: "valid" | "invalid" | "unavailable";
+  callbackVariantVerification: {
+    none: "valid" | "invalid" | "unavailable";
+    challengeCallbackUrl: "valid" | "invalid" | "unavailable";
+    browserOrigin: "valid" | "invalid" | "unavailable";
+    browserHref: "valid" | "invalid" | "unavailable";
+  };
 };
 
 const SERVER_EXPECTED_RECIPIENT = "mandate-snowy.vercel.app";
@@ -34,10 +40,11 @@ function borshString(value: string): Uint8Array {
   const bytes = new TextEncoder().encode(value);
   return concat(u32(bytes.length), bytes);
 }
-function reconstructServerPayload(message: string, nonce: Uint8Array, recipient: string, callbackUrl: string): Uint8Array {
+function reconstructServerPayload(message: string, nonce: Uint8Array, recipient: string, callbackUrl?: string): Uint8Array {
   const prefix = new Uint8Array(4);
   new DataView(prefix.buffer).setUint32(0, 0x80000000 + 413, true);
-  return concat(prefix, borshString(message), nonce, borshString(recipient), new Uint8Array([1]), borshString(callbackUrl));
+  const callback = callbackUrl === undefined ? new Uint8Array([0]) : concat(new Uint8Array([1]), borshString(callbackUrl));
+  return concat(prefix, borshString(message), nonce, borshString(recipient), callback);
 }
 function base58Decode(value: string): Uint8Array {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -70,6 +77,8 @@ export async function inspectRecoveryWalletResponse(input: {
   walletRequestCallbackUrl: string;
   walletRequestMessage: string;
   walletRequestRecipient: string;
+  browserOrigin: string;
+  browserHref: string;
   nonce: Uint8Array;
   expectedAccountId: string;
   expectedPublicKey: string;
@@ -103,28 +112,38 @@ export async function inspectRecoveryWalletResponse(input: {
 
   let serverPayloadReconstruction: SafeWalletDiagnostic["serverPayloadReconstruction"] = "failed";
   let localEd25519Verification: SafeWalletDiagnostic["localEd25519Verification"] = "unavailable";
+  const callbackVariantVerification: SafeWalletDiagnostic["callbackVariantVerification"] = {
+    none: "unavailable", challengeCallbackUrl: "unavailable",
+    browserOrigin: "unavailable", browserHref: "unavailable",
+  };
   try {
     if (!normalized || input.nonce.length !== 32) throw new Error("Missing valid signed message or nonce");
-    const payload = reconstructServerPayload(input.challengeMessage, input.nonce, input.challengeRecipient, input.challengeCallbackUrl);
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", asArrayBuffer(payload)));
-    serverPayloadReconstruction = "SHA-256 digest generated";
-
     const [keyType, encodedKey, extra] = normalized.publicKey.split(":");
     if (keyType !== "ed25519" || !encodedKey || extra !== undefined) throw new Error("Unsupported key type");
     const keyBytes = base58Decode(encodedKey);
     const signatureBytes = base64Decode(normalized.signature);
     if (keyBytes.length !== 32 || signatureBytes.length !== 64) throw new Error("Invalid key or signature length");
-    const cryptoKey = await crypto.subtle.importKey(
-      "raw", asArrayBuffer(keyBytes), { name: "Ed25519" }, false, ["verify"],
-    );
-    const valid = await crypto.subtle.verify(
-      { name: "Ed25519" }, cryptoKey, asArrayBuffer(signatureBytes), asArrayBuffer(digest),
-    );
-    localEd25519Verification = valid ? "valid" : "invalid";
-  } catch {
-    if (serverPayloadReconstruction === "SHA-256 digest generated") {
-      localEd25519Verification = "invalid";
+    const cryptoKey = await crypto.subtle.importKey("raw", asArrayBuffer(keyBytes), { name: "Ed25519" }, false, ["verify"]);
+    const candidates: Array<[keyof SafeWalletDiagnostic["callbackVariantVerification"], string | undefined]> = [
+      ["none", undefined],
+      ["challengeCallbackUrl", input.challengeCallbackUrl],
+      ["browserOrigin", input.browserOrigin],
+      ["browserHref", input.browserHref],
+    ];
+    for (const [name, callbackUrl] of candidates) {
+      try {
+        const payload = reconstructServerPayload(input.challengeMessage, input.nonce, input.challengeRecipient, callbackUrl);
+        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", asArrayBuffer(payload)));
+        serverPayloadReconstruction = "SHA-256 digest generated";
+        const valid = await crypto.subtle.verify({ name: "Ed25519" }, cryptoKey, asArrayBuffer(signatureBytes), asArrayBuffer(digest));
+        callbackVariantVerification[name] = valid ? "valid" : "invalid";
+      } catch {
+        callbackVariantVerification[name] = "unavailable";
+      }
     }
+    localEd25519Verification = callbackVariantVerification.challengeCallbackUrl;
+  } catch {
+    if (serverPayloadReconstruction === "SHA-256 digest generated") localEd25519Verification = "invalid";
   }
 
   return {
@@ -142,5 +161,6 @@ export async function inspectRecoveryWalletResponse(input: {
     signatureEncodingValid,
     serverPayloadReconstruction,
     localEd25519Verification,
+    callbackVariantVerification,
   };
 }
