@@ -625,6 +625,21 @@ select ok(
   and (select relrowsecurity from pg_class where oid='mandate_private.near_wallet_revocation_challenges'::regclass),
   'wallet events and revocation challenges have RLS enabled'
 );
+
+select ok(
+  exists (
+    select 1 from information_schema.columns
+    where table_schema='mandate_private'
+      and table_name='near_transfer_receipts'
+      and column_name='invalidated_at'
+  )
+  and exists (
+    select 1 from pg_constraint
+    where conrelid='mandate_private.near_transfer_receipts'::regclass
+      and conname='near_transfer_receipts_invalidated_unbound_check'
+  ),
+  'transfer receipt invalidation is tracked and cannot overwrite bound transaction evidence'
+);
 select ok(
   not has_table_privilege('authenticated','mandate_private.near_wallet_events','SELECT')
   and not has_table_privilege('authenticated','mandate_private.near_wallet_revocation_challenges','SELECT')
