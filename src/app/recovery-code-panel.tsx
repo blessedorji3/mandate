@@ -42,7 +42,6 @@ export function RecoveryCodePanel() {
   const [selectedWallet, setSelectedWallet] = useState("");
   const [connectedAccount, setConnectedAccount] = useState("");
   const [hasHistory, setHasHistory] = useState(false);
-  const [activeWallet, setActiveWallet] = useState("");
   const [activeWallets, setActiveWallets] = useState<ActiveWallet[]>([]);
   const [established, setEstablished] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
@@ -81,7 +80,6 @@ export function RecoveryCodePanel() {
             activeLinks.some(wallet => wallet.accountId === lifecycle.activeWalletAccountId)
               ? lifecycle.activeWalletAccountId
               : activeLinks[0]?.accountId ?? "";
-          setActiveWallet(preferred);
           setActiveWallets(activeLinks);
           setSelectedWallet(preferred);
         }
