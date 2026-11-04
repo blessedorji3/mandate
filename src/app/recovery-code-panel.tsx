@@ -209,6 +209,8 @@ export function RecoveryCodePanel() {
         walletRequestCallbackUrl: walletRequest.callbackUrl,
         walletRequestMessage: walletRequest.message,
         walletRequestRecipient: walletRequest.recipient,
+        browserOrigin: window.location.origin,
+        browserHref: window.location.href,
         nonce: nonceBytes,
         expectedAccountId: challenge.accountId,
         expectedPublicKey: challenge.publicKey,
