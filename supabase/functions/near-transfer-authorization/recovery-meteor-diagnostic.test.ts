@@ -46,7 +46,7 @@ Deno.test("recovery reset: Meteor signMessage inputs and server NEP-413 reconstr
   const rawPublicKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
   const publicKey = `ed25519:${recoveryTestUtils.base58Encode(rawPublicKey)}`;
   const challengeMessage = message.replace("__PUBLIC_KEY__", publicKey);
-  assertEquals(/^[\\x20-\\x7E\\r\\n]*$/.test(challengeMessage), true, "the exact Meteor recovery challenge must be ASCII-only");
+  assertEquals(/^[\x20-\x7E\r\n]*$/.test(challengeMessage), true, "the exact Meteor recovery challenge must be ASCII-only");
   const challengeNonceHex = "ab".repeat(32);
   const challengeNonceBytes = Uint8Array.from(challengeNonceHex.match(/.{2}/g)!, (byte) => Number.parseInt(byte, 16));
   const challengeRecipient = recipient;
