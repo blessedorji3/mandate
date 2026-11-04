@@ -19,11 +19,11 @@ const walletProvider = {
   cachedExecutorCleared: true,
 };
 
-async function makeSignedMessage() {
+async function makeSignedMessage(messageValue = message) {
   const signer = new KeyPairSigner(KeyPairEd25519.fromRandom());
   const publicKey = (await signer.getPublicKey()).toString();
   const signedMessage = await signer.signNep413Message(accountId, {
-    message,
+    message: messageValue,
     recipient,
     nonce,
   });
@@ -99,12 +99,13 @@ describe("official NEP-413 wallet diagnostic", () => {
     expect(keyMismatch.officialNep413Verification).toBe("not-run");
   });
 
-  it("does not run the wallet diagnostic for a non-ASCII message", async () => {
-    const { publicKey, signedMessage } = await makeSignedMessage();
+  it("verifies a valid NEP-413 signature for a non-ASCII UTF-8 message", async () => {
+    const unicodeMessage = "MANDATE café — recovery reset diagnostic";
+    const { publicKey, signedMessage } = await makeSignedMessage(unicodeMessage);
     const result = await inspectOfficialNep413Response({
       expectedAccountId: accountId,
       expectedPublicKey: publicKey,
-      message: "MANDATE caf\u00e9 diagnostic",
+      message: unicodeMessage,
       recipient,
       nonce,
       walletResponse: signedMessage,
@@ -112,6 +113,8 @@ describe("official NEP-413 wallet diagnostic", () => {
     });
 
     expect(result.messageAsciiOnly).toBe(false);
-    expect(result.officialNep413Verification).toBe("not-run");
-  });
+    expect(result.nonceLengthValid).toBe(true);
+    expect(result.signatureEncodingValid).toBe(true);
+    expect(result.officialNep413Verification).toBe("valid");
+  });;
 });
