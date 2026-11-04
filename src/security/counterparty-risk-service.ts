@@ -73,7 +73,7 @@ export async function assessCounterpartyRisk(
 ): Promise<CounterpartyRiskAssessment> {
   const now = dependencies.now ?? (() => new Date());
   const evaluatedAt = now().toISOString();
-  if (!UUID.test(ownerId) || targetAccountId.length < 2 || targetAccountId.length > 64 || !ACCOUNT_ID.test(targetAccountId)) {
+  if (typeof ownerId !== "string" || !UUID.test(ownerId) || typeof targetAccountId !== "string" || targetAccountId.length < 2 || targetAccountId.length > 64 || !ACCOUNT_ID.test(targetAccountId)) {
     return {
       decision: evaluateCounterpartyRisk({ accountId: targetAccountId, evaluatedAt, signals: [] }, now),
       collection: { chain: "UNAVAILABLE", blocklist: "UNAVAILABLE", interactions: "UNAVAILABLE" },

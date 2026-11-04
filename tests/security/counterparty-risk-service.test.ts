@@ -60,6 +60,13 @@ describe("assessCounterpartyRisk", () => {
     expect(result.decision.outcome).toBe("WARN");
   });
 
+  it("fails closed for a malformed runtime target instead of throwing", async () => {
+    const { dependencies, calls } = deps();
+    const result = await assessCounterpartyRisk(ownerId, null as never, dependencies as never);
+    expect(calls).toHaveLength(0);
+    expect(result.decision.outcome).toBe("WARN");
+  });
+
   it("fails closed when database or chain dependencies reject", async () => {
     const { dependencies } = deps({
       findBlocklistRecord: async () => { throw new Error("database unavailable"); },
