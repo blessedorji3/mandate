@@ -14,6 +14,9 @@ drop index if exists mandate_private.near_owner_wallets_one_active_per_owner_idx
 -- transaction hash is retained as historical evidence.
 alter table mandate_private.near_transfer_receipts
   add column if not exists invalidated_at timestamptz;
+alter table mandate_private.near_transfer_receipts
+  add constraint near_transfer_receipts_invalidated_unbound_check
+  check (invalidated_at is null or transaction_hash is null);
 create index if not exists near_transfer_receipts_unbound_signer_idx
   on mandate_private.near_transfer_receipts(owner_id, signer_account_id)
   where transaction_hash is null and invalidated_at is null;
