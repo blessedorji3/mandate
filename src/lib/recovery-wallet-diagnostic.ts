@@ -73,8 +73,8 @@ function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export async function inspectRecoveryWalletResponse(input: {
   challengeMessage: string;
   challengeRecipient: string;
-  challengeCallbackUrl: string;
-  walletRequestCallbackUrl: string;
+  challengeCallbackUrl?: string;
+  walletRequestCallbackUrl?: string;
   walletRequestMessage: string;
   walletRequestRecipient: string;
   browserOrigin: string;
@@ -141,7 +141,7 @@ export async function inspectRecoveryWalletResponse(input: {
         callbackVariantVerification[name] = "unavailable";
       }
     }
-    localEd25519Verification = callbackVariantVerification.challengeCallbackUrl;
+    localEd25519Verification = callbackVariantVerification.none;
   } catch {
     if (serverPayloadReconstruction === "SHA-256 digest generated") localEd25519Verification = "invalid";
   }
