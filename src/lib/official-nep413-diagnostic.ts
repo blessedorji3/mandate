@@ -9,7 +9,10 @@ export type OfficialNep413Diagnostic = {
     cachedExecutorCleared: boolean;
   };
   messageAsciiOnly: boolean;
-  callbackUrlIncluded: false;
+  callbackVariantVerification: {
+    none: "valid" | "invalid" | "not-run";
+    challengeCallbackUrl: "valid" | "invalid" | "not-run";
+  };
   nonceLengthBytes: number;
   nonceLengthValid: boolean;
   signerAccountMatchesRegisteredWallet: boolean;
@@ -59,6 +62,7 @@ export async function inspectOfficialNep413Response(input: {
   recipient: string;
   nonce: Uint8Array;
   walletResponse: unknown;
+  callbackUrl?: string;
   walletProvider: OfficialNep413Diagnostic["walletProvider"];
 }): Promise<OfficialNep413Diagnostic> {
   let normalized: ReturnType<typeof normalizeNearSignedMessage> | null = null;
@@ -80,6 +84,10 @@ export async function inspectOfficialNep413Response(input: {
 
   let officialNep413Verification: OfficialNep413Diagnostic["officialNep413Verification"] =
     "not-run";
+  const callbackVariantVerification: OfficialNep413Diagnostic["callbackVariantVerification"] = {
+    none: "not-run",
+    challengeCallbackUrl: "not-run",
+  };
 
   if (
     nonceLengthValid &&
@@ -92,20 +100,43 @@ export async function inspectOfficialNep413Response(input: {
       if (!input.expectedPublicKey.startsWith("ed25519:")) {
         throw new Error("Unsupported NEAR signing key.");
       }
-      await verifyMessage({
-        signerAccountId: input.expectedAccountId,
-        signerPublicKey: input.expectedPublicKey,
-        payload: {
-          message: input.message,
-          recipient: input.recipient,
-          nonce: input.nonce,
-        },
-        signature: signatureBytes,
-        provider: diagnosticOnlyProvider,
-      });
-      officialNep413Verification = "valid";
+
+      const verifyVariant = async (callbackUrl?: string) => {
+        try {
+          await verifyMessage({
+            signerAccountId: input.expectedAccountId,
+            signerPublicKey: input.expectedPublicKey,
+            payload: {
+              message: input.message,
+              recipient: input.recipient,
+              nonce: input.nonce,
+              ...(callbackUrl === undefined ? {} : { callbackUrl }),
+            },
+            signature: signatureBytes,
+            provider: diagnosticOnlyProvider,
+          });
+          return "valid" as const;
+        } catch {
+          // Do not expose the raw signature, key, payload, or provider error.
+          return "invalid" as const;
+        }
+      };
+
+      // Match the server's accepted NEP-413 forms: trusted callback first,
+      // then Option::None. The message, nonce, recipient and public key never
+      // change between variants.
+      if (typeof input.callbackUrl === "string" && input.callbackUrl.length > 0) {
+        callbackVariantVerification.challengeCallbackUrl =
+          await verifyVariant(input.callbackUrl);
+      }
+      callbackVariantVerification.none = await verifyVariant();
+
+      officialNep413Verification =
+        callbackVariantVerification.challengeCallbackUrl === "valid" ||
+        callbackVariantVerification.none === "valid"
+          ? "valid"
+          : "invalid";
     } catch {
-      // Do not expose the raw signature, key, payload, or provider error.
       officialNep413Verification = "invalid";
     }
   }
@@ -113,7 +144,7 @@ export async function inspectOfficialNep413Response(input: {
   return {
     walletProvider: input.walletProvider,
     messageAsciiOnly,
-    callbackUrlIncluded: false,
+    callbackVariantVerification,
     nonceLengthBytes: input.nonce.length,
     nonceLengthValid,
     signerAccountMatchesRegisteredWallet,
