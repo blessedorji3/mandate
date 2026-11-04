@@ -196,8 +196,14 @@ export function RecoveryCodePanel() {
       // NEAR Connect caches sandbox executor JavaScript under walletId:version.
       // Refresh only Meteor's cached executor before this sensitive signature
       // request; this does not clear the wallet session or alter account keys.
-      if (adapterClass === "SandboxWallet" && wallet.manifest?.id === "meteor-wallet") {
-        await connector.db.removeItem(`${wallet.manifest.id}:${wallet.manifest.version}`);
+      // Do not identify this adapter by constructor.name: production bundles may
+      // minify "SandboxWallet" to a short name. The trusted manifest id is stable.
+      if (wallet.manifest?.id === "meteor-wallet") {
+        const manifestVersion = wallet.manifest.version;
+        if (typeof manifestVersion !== "string" || !manifestVersion) {
+          throw new Error("Meteor Wallet executor version is unavailable; cannot refresh its cached signer.");
+        }
+        await connector.db.removeItem(`meteor-wallet:${manifestVersion}`);
         cachedExecutorCleared = true;
       }
       let executorHost: string | null = null;
