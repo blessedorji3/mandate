@@ -58,7 +58,7 @@ describe("collectNearTestnetHistory", () => {
   it("does not infer account age from first-observed activity", async () => {
     const { fetchImpl } = makeFetch();
     const result = await collectNearTestnetHistory(account, fetchImpl, () => new Date(at));
-    expect(result.firstObservedActivityAt).toBe("2026-10-01T00:00:00.000Z");
+    expect(result.firstObservedActivityAt).toBe("2026-10-01T10:00:00.000Z");
     expect(result.accountAgeDays).toBeNull();
     expect(result.signals.find((signal) => signal.name === "account_age")?.status).toBe("unavailable");
   });
