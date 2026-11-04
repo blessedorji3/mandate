@@ -82,7 +82,6 @@ export async function inspectOfficialNep413Response(input: {
     "not-run";
 
   if (
-    messageAsciiOnly &&
     nonceLengthValid &&
     signerAccountMatchesRegisteredWallet &&
     signerPublicKeyMatchesRegisteredWallet &&
