@@ -408,32 +408,32 @@ select public.create_near_wallet_recovery_reset_challenge_v1(
   '10000000-0000-4000-8000-000000000001',
   '90000000-0000-4000-8000-000000000002',
   'new-wallet-a.testnet','ed25519:' || repeat('2',44),
-  repeat('b',64),'second reset rate-limit fixture'
+  repeat('b',64),'second reset rate-limit fixture', 'https://mandate-snowy.vercel.app'
 );
 select public.create_near_wallet_recovery_reset_challenge_v1(
   '10000000-0000-4000-8000-000000000001',
   '90000000-0000-4000-8000-000000000003',
   'new-wallet-a.testnet','ed25519:' || repeat('2',44),
-  repeat('c',64),'third reset rate-limit fixture'
+  repeat('c',64),'third reset rate-limit fixture', 'https://mandate-snowy.vercel.app'
 );
 select throws_ok(
   $$select public.create_near_wallet_recovery_reset_challenge_v1(
     '10000000-0000-4000-8000-000000000001',
     '90000000-0000-4000-8000-000000000004',
     'new-wallet-a.testnet','ed25519:' || repeat('2',44),
-    repeat('d',64),'fourth reset rate-limit fixture'
+    repeat('d',64),'fourth reset rate-limit fixture', 'https://mandate-snowy.vercel.app'
   )$$,
   'P0001',
   'Recovery-code reset rate limit exceeded',
   'fourth recovery-code reset challenge within one hour is rejected'
 );
 insert into mandate_private.near_wallet_recovery_reset_challenges
-  (id,owner_id,account_id,public_key,nonce_hex,message,expires_at)
+  (id,owner_id,account_id,public_key,nonce_hex,message,callback_url,expires_at)
 values (
   '90000000-0000-4000-8000-000000000005',
   '10000000-0000-4000-8000-000000000001',
   'new-wallet-a.testnet','ed25519:' || repeat('2',44),
-  repeat('e',64),'expired reset challenge',now()-interval '1 second'
+  repeat('e',64),'expired reset challenge','https://mandate-snowy.vercel.app',now()-interval '1 second'
 );
 select is(
   (select count(*)::integer from public.get_near_wallet_recovery_reset_challenge_v1(
@@ -530,7 +530,7 @@ select throws_ok(
   '10000000-0000-4000-8000-000000000002',
   '90000000-0000-4000-8000-000000000006',
   'old-wallet-b.testnet','ed25519:' || repeat('3',44),
-  repeat('f',64),'reset during pending wallet recovery'
+  repeat('f',64),'reset during pending wallet recovery', 'https://mandate-snowy.vercel.app'
  )$$,
  'P0001',
  'Recovery-code reset is unavailable while wallet recovery is pending',
