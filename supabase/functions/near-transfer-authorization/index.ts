@@ -566,7 +566,7 @@ export async function handleRequest(req: Request) {
       return reply({
         completed: true, accountId: challenge.account_id,
         recoveryCode: newRecoveryCode,
-        message: "Wallet recovery completed. The old wallet has been revoked in MANDATE only; its NEAR on-chain access key has not been removed by this process. The replacement is now the single active MANDATE sender, and a new independent recovery code has been issued. Save it now; it will not be shown again.",
+        message: "Wallet recovery completed. All previously active wallets have been revoked in MANDATE only; their NEAR on-chain access keys have not been removed by this process. The replacement is now the only active MANDATE wallet, and a new independent recovery code has been issued. Save it now; it will not be shown again.",
       });
     }
 
