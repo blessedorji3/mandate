@@ -189,23 +189,35 @@ export function RecoveryCodePanel() {
       if (challenge.accountId !== activeWallet || typeof challenge.publicKey !== "string") {
         throw new Error("MANDATE did not issue a challenge for your active registered wallet.");
       }
-      const wallet = await connector.wallet();
-      if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
-      const adapterClass = typeof wallet.constructor?.name === "string" ? wallet.constructor.name : null;
-      let cachedExecutorCleared = false;
-      // NEAR Connect caches sandbox executor JavaScript under walletId:version.
-      // Refresh only Meteor's cached executor before this sensitive signature
-      // request; this does not clear the wallet session or alter account keys.
-      // Do not identify this adapter by constructor.name: production bundles may
-      // minify "SandboxWallet" to a short name. The trusted manifest id is stable.
-      if (wallet.manifest?.id === "meteor-wallet") {
-        const manifestVersion = wallet.manifest.version;
-        if (typeof manifestVersion !== "string" || !manifestVersion) {
-          throw new Error("Meteor Wallet executor version is unavailable; cannot refresh its cached signer.");
-        }
-        await connector.db.removeItem(`meteor-wallet:${manifestVersion}`);
-        cachedExecutorCleared = true;
+      // Use a brand-new connector and wallet adapter. Removing the IndexedDB
+      // entry from the already-connected adapter is insufficient because its
+      // SandboxExecutor can retain the old executor source in memory.
+      const { NearConnector } = await import("@hot-labs/near-connect");
+      const signingConnector = new NearConnector({
+        network: "testnet",
+        features: { testnet: true },
+        autoConnect: false,
+      });
+      await signingConnector.whenManifestLoaded;
+      const signingManifest = signingConnector.manifest.wallets.find(item => item.id === "meteor-wallet");
+      if (!signingManifest || typeof signingManifest.version !== "string" || !signingManifest.version) {
+        throw new Error("Meteor Wallet manifest is unavailable; cannot safely refresh its signing executor.");
       }
+      const cacheKey = `meteor-wallet:${signingManifest.version}`;
+      await signingConnector.db.removeItem(cacheKey);
+      const cachedExecutorCleared = true;
+      const connected = await signingConnector.getConnectedWallet();
+      if (connected.accounts[0]?.accountId !== activeWallet) {
+        throw new Error("The freshly loaded connector did not restore your active registered wallet.");
+      }
+      const wallet = connected.wallet;
+      if (wallet.manifest?.id !== "meteor-wallet") {
+        throw new Error("The freshly loaded connector did not select Meteor Wallet.");
+      }
+      if (typeof wallet.signMessage !== "function") {
+        throw new Error("This wallet does not support NEP-413 message signing.");
+      }
+      const adapterClass = typeof wallet.constructor?.name === "string" ? wallet.constructor.name : null;
       let executorHost: string | null = null;
       try { executorHost = new URL(wallet.manifest.executor).hostname; } catch { /* safe metadata only */ }
       const walletProvider = {
@@ -215,6 +227,8 @@ export function RecoveryCodePanel() {
         adapterClass,
         executorHost,
         cachedExecutorCleared,
+        cacheKey,
+        diagnosticBuild: "fresh-connector-cache-reset-v1",
       };
       setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
       const nonceBytes = fromHex(challenge.nonceHex);
