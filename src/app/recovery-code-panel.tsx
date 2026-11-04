@@ -191,10 +191,24 @@ export function RecoveryCodePanel() {
       }
       const wallet = await connector.wallet();
       if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
+      const adapterClass = typeof wallet.constructor?.name === "string" ? wallet.constructor.name : null;
+      let cachedExecutorCleared = false;
+      // NEAR Connect caches sandbox executor JavaScript under walletId:version.
+      // Refresh only Meteor's cached executor before this sensitive signature
+      // request; this does not clear the wallet session or alter account keys.
+      if (adapterClass === "SandboxWallet" && wallet.manifest?.id === "meteor-wallet") {
+        await connector.db.removeItem(`${wallet.manifest.id}:${wallet.manifest.version}`);
+        cachedExecutorCleared = true;
+      }
+      let executorHost: string | null = null;
+      try { executorHost = new URL(wallet.manifest.executor).hostname; } catch { /* safe metadata only */ }
       const walletProvider = {
         id: typeof wallet.manifest?.id === "string" ? wallet.manifest.id : null,
         name: typeof wallet.manifest?.name === "string" ? wallet.manifest.name : null,
         version: typeof wallet.manifest?.version === "string" ? wallet.manifest.version : null,
+        adapterClass,
+        executorHost,
+        cachedExecutorCleared,
       };
       setNotice("Review the recovery-code reset message in your wallet. It changes only the recovery code and does not move funds…");
       const nonceBytes = fromHex(challenge.nonceHex);
