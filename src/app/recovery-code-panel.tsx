@@ -282,6 +282,7 @@ export function RecoveryCodePanel() {
     if (!ready || busy || !established || !selectedWallet || recoveryCode) return;
     setBusy(true);
     setError("");
+    setOfficialDiagnostic(null);
     setSafeDiagnostic(null);
     setDiagnosticSubmission("not-submitted");
     try {
