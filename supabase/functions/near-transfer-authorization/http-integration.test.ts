@@ -51,6 +51,7 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
     // the Edge Function module reads its environment variables.
     const { handleRequest } = await import("./index.ts");
     const origin = "https://mandate-snowy.vercel.app";
+    const releasePreviewOrigin = "https://mandate-git-release-multi-wallet-recovery-hardening-web3pass.vercel.app";
     const makeRequest = (authorization?: string, action = "wallet_status") => new Request(
       "https://mandate-http-test.invalid/functions/v1/near-transfer-authorization",
       {
@@ -75,6 +76,31 @@ Deno.test("Edge Function enforces missing, invalid, and valid bearer authenticat
 
     const invalid = await handleRequest(makeRequest("Bearer invalid-test-user-token"));
     assertEquals(invalid.status, 401, "invalid bearer token must be rejected");
+
+    const previewPreflight = await handleRequest(new Request(
+      "https://mandate-http-test.invalid/functions/v1/near-transfer-authorization",
+      { method: "OPTIONS", headers: { origin: releasePreviewOrigin } },
+    ));
+    assertEquals(previewPreflight.status, 200, "the exact release preview origin should pass CORS preflight");
+    assertEquals(
+      previewPreflight.headers.get("access-control-allow-origin"),
+      releasePreviewOrigin,
+      "the allowlist must return the exact release preview origin, not a wildcard",
+    );
+
+    const rejectedOrigin = await handleRequest(new Request(
+      "https://mandate-http-test.invalid/functions/v1/near-transfer-authorization",
+      {
+        method: "POST",
+        headers: {
+          origin: "https://attacker.example",
+          "content-type": "application/json",
+          authorization: "Bearer valid-test-user-token",
+        },
+        body: JSON.stringify({ action: "wallet_status", accountId: "owner-wallet.testnet" }),
+      },
+    ));
+    assertEquals(rejectedOrigin.status, 403, "untrusted origins must remain denied");
 
     const valid = await handleRequest(makeRequest("Bearer valid-test-user-token"));
     assertEquals(valid.status, 200, "valid authenticated request should reach the RPC");
