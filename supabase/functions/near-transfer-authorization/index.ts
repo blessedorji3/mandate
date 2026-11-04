@@ -87,10 +87,21 @@ function nep413Bytes(message: string, nonce: Uint8Array, recipient: string, call
   const callback = callbackUrl === undefined ? new Uint8Array([0]) : concat(new Uint8Array([1]), borshString(callbackUrl));
   return concat(prefix, borshString(message), nonce, borshString(recipient), callback);
 }
-function trustedCallbackUrl(req: Request): string {
+function trustedCallbackUrl(req: Request, requestedUrl: unknown): string {
   const origin = req.headers.get("origin") ?? "";
   if (!ALLOWED_ORIGINS.has(origin)) throw new Error("A trusted MANDATE application origin is required.");
-  return origin;
+  if (typeof requestedUrl !== "string" || requestedUrl.length > 2048) {
+    throw new Error("A valid MANDATE page callback URL is required.");
+  }
+  let parsed: URL;
+  try { parsed = new URL(requestedUrl); } catch {
+    throw new Error("A valid MANDATE page callback URL is required.");
+  }
+  if (parsed.protocol !== "https:" || parsed.origin !== origin ||
+      parsed.username !== "" || parsed.password !== "" || parsed.href !== requestedUrl) {
+    throw new Error("The callback URL must be the exact HTTPS page URL on this trusted MANDATE origin.");
+  }
+  return requestedUrl;
 }
 async function sha256(bytes: Uint8Array) {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
@@ -480,7 +491,7 @@ export async function handleRequest(req: Request) {
       const fullAccess = findActiveFullAccessKey(accessKeys, wallet.public_key);
       if (!fullAccess) return reply({ error: "The active registered wallet key is no longer an active FullAccess key." }, 403);
 
-      const callbackUrl = trustedCallbackUrl(req);
+      const callbackUrl = trustedCallbackUrl(req, body.callbackUrl);
       const challengeId = crypto.randomUUID();
       const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
       const message = [
