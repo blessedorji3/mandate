@@ -141,7 +141,7 @@ export async function inspectRecoveryWalletResponse(input: {
         callbackVariantVerification[name] = "unavailable";
       }
     }
-    localEd25519Verification = callbackVariantVerification.none;
+    localEd25519Verification = callbackVariantVerification.challengeCallbackUrl;
   } catch {
     if (serverPayloadReconstruction === "SHA-256 digest generated") localEd25519Verification = "invalid";
   }
