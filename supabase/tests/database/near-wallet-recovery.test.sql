@@ -610,5 +610,149 @@ select throws_ok(
  'sixth recovery challenge within one hour is rejected'
 );
 
+
+-- Multi-wallet ownership regression tests.
+select ok(
+  not exists (
+    select 1 from pg_indexes
+    where schemaname='mandate_private'
+      and indexname='near_owner_wallets_one_active_per_owner_idx'
+  ),
+  'the old one-active-wallet-per-owner restriction is removed'
+);
+select ok(
+  (select relrowsecurity from pg_class where oid='mandate_private.near_wallet_events'::regclass)
+  and (select relrowsecurity from pg_class where oid='mandate_private.near_wallet_revocation_challenges'::regclass),
+  'wallet events and revocation challenges have RLS enabled'
+);
+select ok(
+  not has_table_privilege('authenticated','mandate_private.near_wallet_events','SELECT')
+  and not has_table_privilege('authenticated','mandate_private.near_wallet_revocation_challenges','SELECT')
+  and has_function_privilege('service_role','public.list_near_owner_wallets_v1(uuid)','EXECUTE')
+  and not has_function_privilege('authenticated','public.list_near_owner_wallets_v1(uuid)','EXECUTE'),
+  'private wallet inventory and revocation records are service-role only'
+);
+
+-- Owner A can add a second wallet without revoking the first one.
+select is(
+  public.create_near_wallet_registration_challenge_v1(
+    '10000000-0000-4000-8000-000000000001',
+    'a1000000-0000-4000-8000-000000000001',
+    'second-wallet-a.testnet',
+    repeat('a',64),
+    'local second wallet registration'
+  ),
+  'a1000000-0000-4000-8000-000000000001'::uuid,
+  'existing owner can create a challenge for a second wallet'
+);
+select is(
+  public.complete_near_wallet_registration_v1(
+    '10000000-0000-4000-8000-000000000001',
+    'a1000000-0000-4000-8000-000000000001',
+    'ed25519:' || repeat('5',44)
+  ),
+  true,
+  'existing owner can register a second independently verified wallet'
+);
+select is(
+  (select count(*)::integer from public.list_near_owner_wallets_v1(
+    '10000000-0000-4000-8000-000000000001'
+  ) where revoked_at is null),
+  2,
+  'both owner wallets remain active after adding the second wallet'
+);
+
+-- A different MANDATE account cannot claim the wallet, even if it is later revoked.
+select throws_ok(
+  $select public.create_near_wallet_registration_challenge_v1(
+    '10000000-0000-4000-8000-000000000002',
+    'a1000000-0000-4000-8000-000000000002',
+    'second-wallet-a.testnet',
+    repeat('b',64),
+    'cross-account wallet claim'
+  )$,
+  'P0001',
+  'This NEAR account is permanently associated with another MANDATE account',
+  'another MANDATE owner cannot start linking a wallet already bound to owner A'
+);
+
+-- Revoking one wallet requires a different active wallet and leaves the other intact.
+select is(
+  public.create_near_wallet_revoke_challenge_v1(
+    '10000000-0000-4000-8000-000000000001',
+    'a2000000-0000-4000-8000-000000000001',
+    'new-wallet-a.testnet',
+    'second-wallet-a.testnet',
+    (select public_key from mandate_private.near_owner_wallets
+     where owner_id='10000000-0000-4000-8000-000000000001'
+       and account_id='second-wallet-a.testnet' and revoked_at is null),
+    repeat('c',64),
+    'local signed wallet removal fixture'
+  ),
+  'a2000000-0000-4000-8000-000000000001'::uuid,
+  'a different active wallet can authorize removal of a selected wallet'
+);
+select is(
+  (select count(*)::integer from public.get_near_wallet_revoke_challenge_v1(
+    '10000000-0000-4000-8000-000000000002',
+    'a2000000-0000-4000-8000-000000000001'
+  )),
+  0,
+  'another MANDATE owner cannot retrieve a wallet-removal challenge'
+);
+select is(
+  public.complete_near_wallet_revoke_v1(
+    '10000000-0000-4000-8000-000000000001',
+    'a2000000-0000-4000-8000-000000000001'
+  ),
+  true,
+  'valid one-time wallet-removal challenge revokes only the selected wallet'
+);
+select ok(
+  (select revoked_at is not null from mandate_private.near_owner_wallets
+   where owner_id='10000000-0000-4000-8000-000000000001'
+     and account_id='new-wallet-a.testnet')
+  and
+  (select revoked_at is null from mandate_private.near_owner_wallets
+   where owner_id='10000000-0000-4000-8000-000000000001'
+     and account_id='second-wallet-a.testnet'),
+  'revocation preserves the other active wallet on the same MANDATE account'
+);
+select is(
+  public.complete_near_wallet_revoke_v1(
+    '10000000-0000-4000-8000-000000000001',
+    'a2000000-0000-4000-8000-000000000001'
+  ),
+  false,
+  'wallet-removal challenge cannot be replayed'
+);
+
+select throws_ok(
+  $select public.create_near_wallet_revoke_challenge_v1(
+    '10000000-0000-4000-8000-000000000001',
+    'a2000000-0000-4000-8000-000000000002',
+    'second-wallet-a.testnet',
+    'new-wallet-a.testnet',
+    'ed25519:' || repeat('2',44),
+    repeat('d',64),
+    'attempt to remove the last active wallet'
+  )$,
+  'P0001',
+  'The last active MANDATE wallet can only be replaced through 24-hour recovery',
+  'the last active wallet cannot be removed without the independent-factor recovery flow'
+);
+select throws_ok(
+  $select public.create_near_wallet_registration_challenge_v1(
+    '10000000-0000-4000-8000-000000000002',
+    'a1000000-0000-4000-8000-000000000003',
+    'new-wallet-a.testnet',
+    repeat('e',64),
+    'attempt to reclaim a revoked wallet from another owner'
+  )$,
+  'P0001',
+  'This NEAR account is permanently associated with another MANDATE account',
+  'revoked wallet history cannot be reassigned to another MANDATE account'
+);
+
 select * from finish();
 rollback;
