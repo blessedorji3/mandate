@@ -614,7 +614,7 @@ export async function handleRequest(req: Request) {
       const challengeId = crypto.randomUUID();
       const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
       const message = [
-        "MANDATE RECOVERY CODE RESET — WALLET OWNERSHIP PROOF",
+        "MANDATE RECOVERY CODE RESET - WALLET OWNERSHIP PROOF",
         "I authorize replacing only my MANDATE independent recovery code. This does not replace or revoke any wallet, move funds, or start the 24-hour wallet recovery process.",
         `MANDATE owner: ${user.id}`,
         `Active NEAR account: ${accountId}`,
