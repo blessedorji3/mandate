@@ -8,6 +8,8 @@ export type SafeWalletDiagnostic = {
     adapterClass: string | null;
     executorHost: string | null;
     cachedExecutorCleared: boolean;
+    cacheKey?: string;
+    diagnosticBuild?: string;
   };
   challengeMessageForwardedUnchanged: boolean;
   challengeRecipientForwardedUnchanged: boolean;
