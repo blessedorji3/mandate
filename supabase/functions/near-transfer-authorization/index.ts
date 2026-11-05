@@ -949,6 +949,122 @@ export async function handleRequest(req: Request) {
     }
 
 
+    if (body.action === "blocklist_report_submit") {
+      const accountId = body.accountId;
+      const reason = body.reason;
+      const evidenceRef = body.evidenceRef;
+      const sourceType = body.sourceType;
+      const evidenceSha256 = body.evidenceSha256 ?? null;
+      if (typeof accountId !== "string" || !/^[a-z0-9]+(?:[-_][a-z0-9]+)*(?:\.[a-z0-9]+(?:[-_][a-z0-9]+)*)*\.testnet$/.test(accountId) ||
+          typeof reason !== "string" || reason.trim().length < 8 || reason.length > 500 ||
+          typeof evidenceRef !== "string" || evidenceRef.trim().length < 8 || evidenceRef.length > 2048 ||
+          !["chain_tx", "explorer", "security_advisory", "other"].includes(String(sourceType)) ||
+          (evidenceSha256 !== null && (typeof evidenceSha256 !== "string" || !/^[0-9a-f]{64}$/.test(evidenceSha256)))) {
+        return reply({ error: "A Testnet account, reason, evidence reference and valid source type are required." }, 400);
+      }
+      let validEvidenceRef = false;
+      try {
+        const parsed = new URL(evidenceRef);
+        validEvidenceRef = parsed.protocol === "https:" && parsed.username === "" && parsed.password === "";
+      } catch {
+        validEvidenceRef = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{32,44}$/.test(evidenceRef);
+      }
+      if (!validEvidenceRef) return reply({ error: "Evidence must be an HTTPS reference or a NEAR transaction hash." }, 400);
+
+      const { data: reportId, error } = await admin.rpc("submit_counterparty_blocklist_report_v1", {
+        p_reporter_owner_id: user.id,
+        p_network: "testnet",
+        p_account_id: accountId,
+        p_reason: reason.trim(),
+        p_evidence_ref: evidenceRef.trim(),
+        p_evidence_sha256: evidenceSha256,
+        p_source_type: sourceType,
+      });
+      if (error || typeof reportId !== "string") {
+        return reply({ error: "The report could not be submitted. Check the evidence and submission limit." }, 409);
+      }
+      return reply({
+        submitted: true,
+        reportId,
+        status: "pending",
+        message: "Report submitted as pending evidence. It is not a BLOCK until an independent reviewer confirms it.",
+      }, 201);
+    }
+
+    if (body.action === "blocklist_review_queue") {
+      const { data, error } = await admin.rpc("list_counterparty_blocklist_review_queue_v1", {
+        p_actor_owner_id: user.id,
+      });
+      if (error) {
+        return reply({ error: "An active blocklist reviewer or administrator role is required." }, 403);
+      }
+      return reply({ reports: Array.isArray(data) ? data : [] });
+    }
+
+    if (body.action === "blocklist_report_review") {
+      const reportId = body.reportId;
+      const decision = body.decision;
+      const reviewNote = body.reviewNote;
+      if (typeof reportId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reportId) ||
+          !["confirmed", "rejected"].includes(String(decision)) ||
+          typeof reviewNote !== "string" || reviewNote.trim().length < 8 || reviewNote.length > 500) {
+        return reply({ error: "A report ID, confirmation/rejection decision and review note are required." }, 400);
+      }
+      const { data, error } = await admin.rpc("review_counterparty_blocklist_report_v1", {
+        p_reviewer_owner_id: user.id,
+        p_report_id: reportId,
+        p_decision: decision,
+        p_review_note: reviewNote.trim(),
+      });
+      if (error || data !== true) {
+        return reply({
+          error: "The review was rejected. An active reviewer/admin role and a report submitted by another owner are required.",
+        }, 403);
+      }
+      return reply({
+        reviewed: true,
+        reportId,
+        decision,
+        message: "Decision recorded with an append-only audit event. A confirmed report becomes a non-overridable BLOCK.",
+      });
+    }
+
+    if (body.action === "blocklist_reviewer_provision") {
+      const subjectOwnerId = body.subjectOwnerId;
+      const action = body.provisioningAction;
+      const reason = body.reason;
+      if (typeof subjectOwnerId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subjectOwnerId) ||
+          !["grant", "revoke"].includes(String(action)) ||
+          typeof reason !== "string" || reason.trim().length < 8 || reason.length > 500) {
+        return reply({ error: "A valid account ID, grant/revoke action and reason are required." }, 400);
+      }
+      const { data: roleId, error } = await admin.rpc("provision_counterparty_blocklist_reviewer_v1", {
+        p_actor_owner_id: user.id,
+        p_subject_owner_id: subjectOwnerId,
+        p_action: action,
+        p_reason: reason.trim(),
+      });
+      if (error || typeof roleId !== "string") {
+        return reply({ error: "Reviewer provisioning failed. Only an active administrator can grant or revoke reviewer roles." }, 403);
+      }
+      return reply({ provisioned: action === "grant", revoked: action === "revoke", roleId, subjectOwnerId });
+    }
+
+    if (body.action === "blocklist_audit") {
+      const limit = body.limit === undefined ? 100 : body.limit;
+      if (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 200) {
+        return reply({ error: "Audit page size must be between 1 and 200." }, 400);
+      }
+      const { data, error } = await admin.rpc("list_counterparty_blocklist_audit_v1", {
+        p_actor_owner_id: user.id,
+        p_limit: limit,
+      });
+      if (error) return reply({ error: "Only an active blocklist administrator can read global audit history." }, 403);
+      return reply({ events: Array.isArray(data) ? data : [] });
+    }
+
     if (body.action === "risk_review_challenge") {
       const proposalIdValue = body.proposalId;
       const signerAccountId = body.signerAccountId;
