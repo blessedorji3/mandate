@@ -1234,7 +1234,7 @@ export async function handleRequest(req: Request) {
       if (createError) return reply({ error: "Could not create a safe, proposal-bound review challenge." }, 409);
       return reply({
         challengeId, message, nonceHex, recipient: APP_RECIPIENT,
-        signerAccountId, riskFingerprint: fingerprint, expiresInSeconds: 180,
+        signerAccountId, riskFingerprint: fingerprint, expiresInSeconds: 300,
       });
     }
 
