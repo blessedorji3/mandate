@@ -15,12 +15,76 @@ function fromHex(value: string): Uint8Array {
   return Uint8Array.from(value.match(/.{2}/g)!, (part) => Number.parseInt(part, 16));
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  if (bytes.length !== 64) throw new Error("The wallet returned an invalid NEP-413 signature length.");
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+function normalizeSignedMessage(value: unknown, expectedAccountId: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("The wallet returned an invalid signed-message response.");
+  }
+  const signed = value as Record<string, unknown>;
+  if (signed.accountId !== expectedAccountId) {
+    throw new Error("The wallet signed with an account different from the registered MANDATE wallet.");
+  }
+
+  const publicKeyValue = signed.publicKey;
+  const publicKey = typeof publicKeyValue === "string"
+    ? publicKeyValue
+    : publicKeyValue !== null && typeof publicKeyValue === "object" &&
+        typeof (publicKeyValue as { toString?: unknown }).toString === "function"
+      ? String(publicKeyValue)
+      : "";
+  if (!/^ed25519:[1-9A-HJ-NP-Za-km-z]{40,50}$/.test(publicKey)) {
+    throw new Error("The wallet returned an invalid NEAR public key.");
+  }
+
+  const signatureValue = signed.signature;
+  let signature: string;
+  if (typeof signatureValue === "string") {
+    let decoded: string;
+    try { decoded = atob(signatureValue); } catch {
+      throw new Error("The wallet returned a malformed Base64 signature.");
+    }
+    if (decoded.length !== 64) throw new Error("The wallet returned an invalid NEP-413 signature length.");
+    signature = signatureValue;
+  } else if (signatureValue instanceof Uint8Array) {
+    signature = bytesToBase64(signatureValue);
+  } else if (signatureValue instanceof ArrayBuffer) {
+    signature = bytesToBase64(new Uint8Array(signatureValue));
+  } else if (Array.isArray(signatureValue) &&
+      signatureValue.length === 64 &&
+      signatureValue.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    signature = bytesToBase64(Uint8Array.from(signatureValue as number[]));
+  } else {
+    throw new Error("The wallet returned an unsupported signature format.");
+  }
+
+  // Send only the three canonical string fields accepted by the Edge Function.
+  // Do not JSON-serialize PublicKey instances or raw Uint8Array objects.
+  return { accountId: expectedAccountId, publicKey, signature };
+}
+
 async function authorizationRequest(body: Record<string, unknown>) {
   const supabase = createClient();
-  const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body });
+  // Validate the wire representation locally so wallet SDK objects or binary
+  // values cannot fail inside fetch serialization without a useful diagnostic.
+  let wireBody: Record<string, unknown>;
+  try {
+    wireBody = JSON.parse(JSON.stringify(body)) as Record<string, unknown>;
+  } catch (cause) {
+    console.error("[MANDATE] Authorization request is not JSON serializable.", cause);
+    throw new Error("MANDATE could not serialize the authorization request. Please retry the wallet signature.");
+  }
+  const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body: wireBody });
   if (error) {
     let message = error.message || "MANDATE authorization service is unavailable.";
-    const context = (error as unknown as { context?: Response }).context;
+    const context = (error as unknown as { context?: unknown }).context;
     if (context instanceof Response) {
       try {
         const payload = await context.clone().json();
@@ -28,6 +92,14 @@ async function authorizationRequest(body: Record<string, unknown>) {
       } catch {
         // Preserve the SDK message for non-JSON responses.
       }
+    } else if (context instanceof Error) {
+      // Preserve the browser's underlying fetch/CORS/network cause for diagnosis.
+      message = `${message} (${context.name}: ${context.message})`;
+      console.error("[MANDATE] Edge Function transport error.", {
+        errorName: error.name,
+        causeName: context.name,
+        causeMessage: context.message,
+      });
     }
     throw new Error(message);
   }
@@ -286,7 +358,7 @@ export function NearWalletPanel({
       // the origin. Use the exact current href and submit the same value for
       // verification; the server independently checks its HTTPS origin.
       const callbackUrl = window.location.href;
-      const signedMessage = await wallet.signMessage({
+      const walletSignedMessage = await wallet.signMessage({
         message: challenge.message,
         recipient: challenge.recipient,
         nonce: fromHex(challenge.nonceHex),
@@ -294,6 +366,7 @@ export function NearWalletPanel({
         network: "testnet",
         signerId: accountId,
       } as Parameters<typeof wallet.signMessage>[0] & { callbackUrl: string });
+      const signedMessage = normalizeSignedMessage(walletSignedMessage, accountId);
       const result = await authorizationRequest({
         action: "risk_review_verify",
         challengeId: challenge.challengeId,
