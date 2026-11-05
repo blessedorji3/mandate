@@ -18,7 +18,19 @@ function fromHex(value: string): Uint8Array {
 async function authorizationRequest(body: Record<string, unknown>) {
   const supabase = createClient();
   const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body });
-  if (error) throw new Error(error.message || "MANDATE authorization service is unavailable.");
+  if (error) {
+    let message = error.message || "MANDATE authorization service is unavailable.";
+    const context = (error as unknown as { context?: Response }).context;
+    if (context instanceof Response) {
+      try {
+        const payload = await context.clone().json();
+        if (payload && typeof payload.error === "string") message = payload.error;
+      } catch {
+        // Preserve the SDK message for non-JSON responses.
+      }
+    }
+    throw new Error(message);
+  }
   if (!data || typeof data !== "object") throw new Error("MANDATE returned an invalid authorization response.");
   if ("error" in data && typeof data.error === "string") throw new Error(data.error);
   return data as Record<string, any>;
