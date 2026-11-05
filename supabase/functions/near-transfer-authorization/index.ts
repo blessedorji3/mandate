@@ -1268,15 +1268,29 @@ export async function handleRequest(req: Request) {
       if (!findActiveFullAccessKey(accessKeys, signed.publicKey)) {
         return reply({ error: "The reviewing wallet key is no longer an active FullAccess key." }, 403);
       }
-      // The callback URL is derived from the request Origin, which has already
-      // passed the strict allowlist check above. This matches the explicit
-      // callbackUrl sent by the browser. Wallet adapters such as Meteor may
-      // legitimately sign NEP-413 Option::None, so accept either standards-
-      // compliant form without trusting a callback supplied in request JSON.
-      const signatureValid = await verifyNep413WithOptionalCallback(
-        challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
-        signed.publicKey, signed.signature, origin,
-      );
+      // Browser wallets may bind callback_url to the full dApp page URL,
+      // while injected/mobile wallet adapters may sign only the origin or
+      // NEP-413 Option::None. The client-supplied URL is not trusted: validate
+      // HTTPS, exact canonical URL, and equality with this already-allowlisted
+      // request origin before testing it as a signed payload variant.
+      let requestedCallbackUrl = origin;
+      if (body.callbackUrl !== undefined) {
+        try {
+          requestedCallbackUrl = trustedCallbackUrl(req, body.callbackUrl);
+        } catch {
+          return reply({ error: "The signed-message callback URL must be a canonical HTTPS URL on this MANDATE origin." }, 400);
+        }
+      }
+      const signatureValid =
+        await verifyNep413WithOptionalCallback(
+          challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+          signed.publicKey, signed.signature, requestedCallbackUrl,
+        ) ||
+        (requestedCallbackUrl !== origin &&
+          await verifyNep413WithOptionalCallback(
+            challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+            signed.publicKey, signed.signature, origin,
+          ));
       if (!signatureValid) return reply({ error: "NEP-413 counterparty review signature verification failed." }, 403);
 
       const policy = await getPolicy(admin, user.id);
