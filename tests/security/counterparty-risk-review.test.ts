@@ -51,6 +51,28 @@ describe("fingerprintCounterpartyRisk", () => {
     expect(await fingerprintCounterpartyRisk(changedEvidence)).not.toBe(fingerprint);
   });
 
+  it("binds the pending report identity digest into the owner acknowledgement", async () => {
+    const first = binding();
+    first.risk.evidence.push({
+      name: "shared_blocklist_pending_detail",
+      status: "verified",
+      observedAt: "2026-11-05T05:00:00.000Z",
+      source: "MANDATE reviewed blocklist",
+      summary: "Pending report 51000000-0000-4000-8000-000000000001: Reporter evidence needs review.",
+      value: "sha256:" + "a".repeat(64),
+    });
+    const changed = binding();
+    changed.risk.evidence.push({
+      name: "shared_blocklist_pending_detail",
+      status: "verified",
+      observedAt: "2026-11-05T05:00:00.000Z",
+      source: "MANDATE reviewed blocklist",
+      summary: "Pending report 51000000-0000-4000-8000-000000000001: Reporter evidence needs review.",
+      value: "sha256:" + "b".repeat(64),
+    });
+    expect(await fingerprintCounterpartyRisk(changed)).not.toBe(await fingerprintCounterpartyRisk(first));
+  });
+
   it("binds the acknowledgement to owner, proposal and policy version", async () => {
     const first = binding();
     const otherOwner = binding();

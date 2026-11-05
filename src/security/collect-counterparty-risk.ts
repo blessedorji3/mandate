@@ -83,6 +83,29 @@ export async function collectAndEvaluateNearTestnetCounterparty(
         : "The server-side blocklist lookup completed with no active report.",
     value: blocklistValue,
   });
+  if (blocklistLookupVerified && trustedBlocklist?.status === "pending") {
+    const pendingCanonical = JSON.stringify({
+      reportId: trustedBlocklist.reportId ?? null,
+      status: trustedBlocklist.status,
+      evidenceRef: trustedBlocklist.evidenceRef,
+      reason: trustedBlocklist.reason,
+    });
+    const pendingDigest = new Uint8Array(await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(pendingCanonical),
+    ));
+    const pendingFingerprint = "sha256:" +
+      Array.from(pendingDigest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    signals.push({
+      name: "shared_blocklist_pending_detail",
+      status: "verified",
+      observedAt: evaluatedAt,
+      source: "MANDATE reviewed blocklist",
+      summary: ("Pending report " + (trustedBlocklist.reportId ?? "without stable report ID") +
+        ": " + trustedBlocklist.reason).slice(0, 500),
+      value: pendingFingerprint,
+    });
+  }
 
   const decision = evaluateCounterpartyRisk({
     accountId,

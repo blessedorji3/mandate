@@ -64,6 +64,44 @@ describe("collectAndEvaluateNearTestnetCounterparty", () => {
     expect(result.decision.outcome).toBe("WARN");
   });
 
+
+  it("binds pending blocklist report identity, evidence reference and reason into risk evidence", async () => {
+    const baseOptions = {
+      fetchImpl: makeFetch({ createAccount: true }) as typeof fetch,
+      now: () => new Date(at),
+      previousInteractions: 0,
+      blocklistLookupStatus: "verified" as const,
+    };
+    const first = await collectAndEvaluateNearTestnetCounterparty(account, {
+      ...baseOptions,
+      blocklist: {
+        status: "pending", reportId: "a2d9b5c7-8f3e-4b1a-9c2d-6e7f8a9b0c1d",
+        evidenceRef: "https://evidence.example/report-1", reason: "Suspicious destination activity",
+      },
+    });
+    const changedReference = await collectAndEvaluateNearTestnetCounterparty(account, {
+      ...baseOptions,
+      blocklist: {
+        status: "pending", reportId: "a2d9b5c7-8f3e-4b1a-9c2d-6e7f8a9b0c1d",
+        evidenceRef: "https://evidence.example/report-2", reason: "Suspicious destination activity",
+      },
+    });
+    const changedReason = await collectAndEvaluateNearTestnetCounterparty(account, {
+      ...baseOptions,
+      blocklist: {
+        status: "pending", reportId: "a2d9b5c7-8f3e-4b1a-9c2d-6e7f8a9b0c1d",
+        evidenceRef: "https://evidence.example/report-1", reason: "Evidence was updated by reporter",
+      },
+    });
+    const fingerprint = (decision: typeof first.decision) =>
+      decision.evidence.find((signal) => signal.name === "shared_blocklist_pending_detail")?.value;
+    expect(first.decision.outcome).toBe("WARN");
+    expect(fingerprint(first.decision)).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(fingerprint(changedReference.decision)).not.toBe(fingerprint(first.decision));
+    expect(fingerprint(changedReason.decision)).not.toBe(fingerprint(first.decision));
+    expect(first.decision.reasons.join(" ")).toContain("Suspicious destination activity");
+  });
+
   it("returns WARN when the owner-scoped interaction count is missing", async () => {
     const result = await collectAndEvaluateNearTestnetCounterparty(account, {
       fetchImpl: makeFetch({ createAccount: true }) as typeof fetch,

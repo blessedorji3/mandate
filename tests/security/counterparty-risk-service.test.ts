@@ -83,4 +83,31 @@ describe("assessCounterpartyRisk", () => {
     expect(result.decision.outcome).toBe("WARN");
     expect(result.collection).toEqual({ chain: "UNAVAILABLE", blocklist: "UNAVAILABLE", interactions: "UNAVAILABLE" });
   });
+  it("preserves stable blocklist report IDs for fingerprint material", async () => {
+    const dependencies = {
+      findBlocklistRecord: async () => ({
+        id: "a2d9b5c7-8f3e-4b1a-9c2d-6e7f8a9b0c1d",
+        status: "pending",
+        evidence_ref: "https://evidence.example/pending/1",
+        reason: "Unreviewed report needs manual verification",
+        reviewed_at: null,
+        reviewer_owner_id: null,
+      }),
+      countPreviousInteractions: async () => 0,
+      collectRisk: async (_accountId: string, options: any) => {
+        expect(options.blocklist.reportId).toBe("a2d9b5c7-8f3e-4b1a-9c2d-6e7f8a9b0c1d");
+        return {
+          network: "testnet" as const, accountId: "target.testnet", status: "PARTIAL" as const,
+          collectedAt: "2026-11-05T05:00:00.000Z",
+          decision: {
+            outcome: "WARN" as const, reasons: [], evidence: [], accountId: "target.testnet",
+            evaluatedAt: "2026-11-05T05:00:00.000Z", requiresHumanApproval: true,
+          },
+        };
+      },
+      now: () => new Date("2026-11-05T05:00:00.000Z"),
+    };
+    await assessCounterpartyRisk("51000000-0000-4000-8000-000000000001", "target.testnet", dependencies);
+  });
+
 });

@@ -3,7 +3,8 @@ export type EvidenceStatus = "verified" | "unavailable" | "stale" | "unverified"
 export type RiskSignalName =
   | "account_age" | "recent_activity" | "first_observed_activity"
   | "account_type" | "previous_mandate_interactions" | "shared_blocklist_lookup"
-  | "contract_code_hash" | "contract_code_history" | "global_contract_reference";
+  | "contract_code_hash" | "contract_code_history" | "global_contract_reference"
+  | "shared_blocklist_pending_detail";
 
 export type RiskSignal = {
   name: RiskSignalName;
@@ -20,6 +21,7 @@ export type BlocklistEvidence = {
   reason: string;
   reviewerId?: string;
   reviewedAt?: string;
+  reportId?: string;
 };
 
 export type CounterpartyRiskInput = {
@@ -57,6 +59,7 @@ const REQUIRED_SIGNALS: RiskSignalName[] = [
 ];
 const SIGNAL_NAMES = new Set<RiskSignalName>([
   ...REQUIRED_SIGNALS, "first_observed_activity", "contract_code_hash", "contract_code_history", "global_contract_reference",
+  "shared_blocklist_pending_detail",
 ]);
 const EXPECTED_SOURCES: Record<RiskSignalName, string> = {
   account_age: "FastNear Testnet indexed transaction details",
@@ -68,6 +71,7 @@ const EXPECTED_SOURCES: Record<RiskSignalName, string> = {
   contract_code_hash: "NEAR Testnet RPC view_account",
   contract_code_history: "NEAR Testnet historical state",
   global_contract_reference: "NEAR Testnet RPC view_account",
+  shared_blocklist_pending_detail: "MANDATE reviewed blocklist",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,6 +109,8 @@ function validSignal(value: unknown): value is RiskSignal {
       !["string", "number", "boolean"].includes(typeof value.value)) return false;
   if (typeof value.value === "number" && !Number.isFinite(value.value)) return false;
   if (typeof value.value === "string" && value.value.length > MAX_TEXT) return false;
+  if (value.name === "shared_blocklist_pending_detail" && value.status === "verified" &&
+      (typeof value.value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.value))) return false;
   if (value.name === "global_contract_reference" && value.status === "verified") {
     if (typeof value.value !== "string") return false;
     const hashPrefix = "global_contract_hash:";
@@ -137,6 +143,7 @@ function validBlocklistShape(value: unknown): value is BlocklistEvidence {
       !validEvidenceRef(value.evidenceRef) || !validText(value.reason)) return false;
   if (value.reviewerId !== undefined && value.reviewerId !== null && !isUuid(value.reviewerId)) return false;
   if (value.reviewedAt !== undefined && value.reviewedAt !== null && !validTimestamp(value.reviewedAt)) return false;
+  if (value.reportId !== undefined && value.reportId !== null && !isUuid(value.reportId)) return false;
   return true;
 }
 function fallback(accountId: string, evaluatedAt: string, reason: string): CounterpartyRiskDecision {
@@ -248,7 +255,13 @@ export function evaluateCounterpartyRisk(
     warn("Shared blocklist lookup evidence conflicts with the supplied review record.");
   }
   if (blocklistSignal?.value === "pending" || data.blocklist?.status === "pending") {
-    warn("A shared blocklist report is pending review.");
+    const pendingDetail = signalByName(signals, "shared_blocklist_pending_detail");
+    if (!pendingDetail || pendingDetail.status !== "verified" ||
+        typeof pendingDetail.value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(pendingDetail.value)) {
+      warn("A shared blocklist report is pending review, but its report identity and evidence details are incomplete.");
+    }
+    warn("A shared blocklist report is pending review" +
+      (data.blocklist?.reason ? ": " + data.blocklist.reason : "."));
   }
 
   if (data.blocklist?.status === "confirmed") {

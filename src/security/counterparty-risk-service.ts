@@ -2,6 +2,7 @@ import { collectAndEvaluateNearTestnetCounterparty, type CounterpartyRiskCollect
 import { evaluateCounterpartyRisk, type BlocklistEvidence, type CounterpartyRiskDecision } from "./counterparty-risk.ts";
 
 type DatabaseBlocklistRow = {
+  id?: string;
   status: "confirmed" | "pending" | "rejected";
   evidence_ref: string;
   reason: string;
@@ -55,6 +56,7 @@ function normalizeBlocklistRow(value: unknown): { evidence: BlocklistEvidence | 
   const evidence: BlocklistEvidence = {
     status: row.status as BlocklistEvidence["status"],
     evidenceRef: row.evidence_ref,
+    ...(typeof row.id === "string" ? { reportId: row.id } : {}),
     reason: row.reason,
     ...(typeof row.reviewer_owner_id === "string" ? { reviewerId: row.reviewer_owner_id } : {}),
     ...(typeof row.reviewed_at === "string" ? { reviewedAt: row.reviewed_at } : {}),
