@@ -286,6 +286,10 @@ export function NearWalletPanel({
         message: challenge.message,
         recipient: challenge.recipient,
         nonce: fromHex(challenge.nonceHex),
+        // Pin a deterministic callback URL so callback-aware wallets and the
+        // server verifier sign/verify the same NEP-413 payload. Meteor-style
+        // wallets that omit callback_url remain supported by the server.
+        callbackUrl: window.location.origin,
         network: "testnet",
         signerId: accountId,
       });
