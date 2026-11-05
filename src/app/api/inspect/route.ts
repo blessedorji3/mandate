@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { evaluateAction } from "@/security/evaluate-action";
 import type { SecurityPolicy } from "@/security/types";
-import { assessCounterpartyRisk } from "@/security/counterparty-risk-service";
-import { evaluateCounterpartyRisk } from "@/security/counterparty-risk";
 import { combinePolicyAndCounterpartyRisk } from "@/security/inspection-risk";
-import { createSupabaseRiskDependencies } from "@/security/supabase-risk-dependencies";
-import { fingerprintCounterpartyRisk } from "@/security/counterparty-risk-review";
 import { readBoundedRequestText, RequestBodyTooLargeError } from "@/security/read-bounded-request-body";
 
 export const runtime = "nodejs";
@@ -72,34 +67,6 @@ export async function POST(request: Request) {
     const unsupportedNetwork = proposalRecord.network !== undefined && proposalRecord.network !== "testnet";
     const now = () => new Date();
 
-    let riskAssessment;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (supabaseUrl && serviceRoleKey) {
-      const admin = createSupabaseAdminClient(supabaseUrl, serviceRoleKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-      riskAssessment = await assessCounterpartyRisk(
-        user.id,
-        targetAccountId,
-        createSupabaseRiskDependencies(admin),
-      );
-    } else {
-      const evaluatedAt = now().toISOString();
-      riskAssessment = {
-        decision: evaluateCounterpartyRisk({
-          accountId: targetAccountId,
-          evaluatedAt,
-          signals: [],
-        }, now),
-        collection: {
-          chain: "UNAVAILABLE" as const,
-          blocklist: "UNAVAILABLE" as const,
-          interactions: "UNAVAILABLE" as const,
-        },
-      };
-    }
-
     const boundedPolicyDecision = unsupportedNetwork
       ? {
           ...policyDecision,
@@ -108,31 +75,50 @@ export async function POST(request: Request) {
           message: "Only NEAR Testnet proposals can be inspected by this environment. No action is authorized.",
         }
       : policyDecision;
+
+    // Inspect counterparty evidence through the same authenticated Edge Function
+    // used for signed WARN acknowledgement and transfer authorization. This
+    // prevents environment-specific service-role fallbacks from creating a
+    // different fingerprint at the next authorization boundary.
+    const { data: riskData, error: riskError } = await supabase.functions.invoke(
+      "near-transfer-authorization",
+      {
+        body: {
+          action: "counterparty_inspect",
+          proposal: {
+            ...proposalRecord,
+            network: "testnet",
+          },
+        },
+      },
+    );
+    if (riskError || !isRecord(riskData) ||
+        !isRecord(riskData.risk) ||
+        !["ALLOW", "WARN", "BLOCK"].includes(String(riskData.risk.outcome)) ||
+        riskData.risk.accountId !== targetAccountId ||
+        typeof riskData.counterpartyRiskFingerprint !== "string" ||
+        !/^[0-9a-f]{64}$/.test(riskData.counterpartyRiskFingerprint) ||
+        !isRecord(riskData.policy) ||
+        riskData.policy.id !== policy.id ||
+        riskData.policy.version !== policy.version) {
+      return NextResponse.json({
+        error: "Counterparty risk inspection is unavailable or inconsistent. No action was authorized.",
+      }, { status: 503, headers: jsonHeaders });
+    }
+
+    const riskAssessment = {
+      decision: riskData.risk as unknown as import("@/security/counterparty-risk").CounterpartyRiskDecision,
+      collection: isRecord(riskData.riskCollection)
+        ? riskData.riskCollection
+        : { chain: "UNAVAILABLE", blocklist: "UNAVAILABLE", interactions: "UNAVAILABLE" },
+    };
     const decision = combinePolicyAndCounterpartyRisk(boundedPolicyDecision, riskAssessment.decision);
 
     const fingerprintableProposal = {
       ...proposalRecord,
       network: "testnet",
     };
-    const counterpartyRiskFingerprint =
-      typeof proposalRecord.id === "string" &&
-      typeof proposalRecord.actionType === "string" &&
-      typeof proposalRecord.asset === "string" &&
-      typeof proposalRecord.amountAtomic === "string" &&
-      typeof proposalRecord.target === "string" &&
-      riskAssessment.decision.accountId === proposalRecord.target
-        ? await fingerprintCounterpartyRisk({
-            ownerId: user.id,
-            policyId: policy.id,
-            policyVersion: policy.version,
-            proposal: fingerprintableProposal as {
-              id: string; agentId?: string; actionType: string; asset: string;
-              amountAtomic: string; target: string; network: string;
-              protocol?: string; approvalAmountAtomic?: string;
-            },
-            risk: riskAssessment.decision,
-          })
-        : null;
+    const counterpartyRiskFingerprint = riskData.counterpartyRiskFingerprint;
     const recordedProposal = {
       ...fingerprintableProposal,
       counterpartyRisk: riskAssessment.decision,
