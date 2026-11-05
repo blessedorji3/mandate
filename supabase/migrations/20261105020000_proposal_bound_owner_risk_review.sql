@@ -283,15 +283,23 @@ begin
   end if;
 
   if v_risk_outcome = 'WARN' then
-    select * into v_review from mandate_private.counterparty_risk_reviews
-    where owner_id = p_owner_id and proposal_id = p_proposal_id
-      and policy_id = p_policy_id and policy_version = p_policy_version
-      and target_account_id = 'confirmwithmandate.testnet'
-      and risk_fingerprint = v_risk_fingerprint
-      and signer_account_id = p_signer_account_id
-      and consumed_at is null and expires_at > now()
-    order by reviewed_at desc limit 1
-    for update;
+    -- The acknowledgement must still belong to this exact active public key.
+    -- A same-account wallet relink can replace the registered key.
+    select r.* into v_review
+    from mandate_private.counterparty_risk_reviews r
+    join mandate_private.near_owner_wallets w
+      on w.owner_id = r.owner_id
+     and w.account_id = r.signer_account_id
+     and w.public_key = r.signer_public_key
+     and w.revoked_at is null
+    where r.owner_id = p_owner_id and r.proposal_id = p_proposal_id
+      and r.policy_id = p_policy_id and r.policy_version = p_policy_version
+      and r.target_account_id = 'confirmwithmandate.testnet'
+      and r.risk_fingerprint = v_risk_fingerprint
+      and r.signer_account_id = p_signer_account_id
+      and r.consumed_at is null and r.expires_at > now()
+    order by r.reviewed_at desc limit 1
+    for update of r;
     if not found then raise exception 'A current signed owner risk review is required'; end if;
     update mandate_private.counterparty_risk_reviews
       set consumed_at = now()
@@ -376,6 +384,13 @@ begin
         and r.policy_version = c.policy_version and r.risk_fingerprint = v_risk_fingerprint
         and r.signer_account_id = c.signer_account_id
         and r.consumed_at is not null and r.expires_at > now()
+        and exists (
+          select 1 from mandate_private.near_owner_wallets w
+          where w.owner_id = r.owner_id
+            and w.account_id = r.signer_account_id
+            and w.public_key = r.signer_public_key
+            and w.revoked_at is null
+        )
     )
   ) then return false; end if;
   if v_risk_outcome = 'ALLOW' and c.risk_review_id is not null then return false; end if;
@@ -458,6 +473,13 @@ begin
         and rr.policy_version = r.policy_version and rr.risk_fingerprint = v_risk_fingerprint
         and rr.signer_account_id = r.signer_account_id
         and rr.consumed_at is not null and rr.expires_at > now()
+        and exists (
+          select 1 from mandate_private.near_owner_wallets w
+          where w.owner_id = rr.owner_id
+            and w.account_id = rr.signer_account_id
+            and w.public_key = rr.signer_public_key
+            and w.revoked_at is null
+        )
     )
   ) then return false; end if;
   if v_risk_outcome = 'ALLOW' and r.risk_review_id is not null then return false; end if;
