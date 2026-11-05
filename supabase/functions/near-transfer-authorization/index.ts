@@ -1281,16 +1281,44 @@ export async function handleRequest(req: Request) {
           return reply({ error: "The signed-message callback URL must be a canonical HTTPS URL on this MANDATE origin." }, 400);
         }
       }
-      const signatureValid =
-        await verifyNep413WithOptionalCallback(
-          challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
-          signed.publicKey, signed.signature, requestedCallbackUrl,
-        ) ||
-        (requestedCallbackUrl !== origin &&
-          await verifyNep413WithOptionalCallback(
-            challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+      const nonceBytes = fromHex(challenge.nonce_hex);
+      const pageCallbackValid = await verifyNep413(
+        challenge.message, nonceBytes, APP_RECIPIENT,
+        signed.publicKey, signed.signature, requestedCallbackUrl,
+      );
+      const originCallbackValid = requestedCallbackUrl === origin
+        ? pageCallbackValid
+        : await verifyNep413(
+            challenge.message, nonceBytes, APP_RECIPIENT,
             signed.publicKey, signed.signature, origin,
-          ));
+          );
+      const noCallbackValid = await verifyNep413(
+        challenge.message, nonceBytes, APP_RECIPIENT,
+        signed.publicKey, signed.signature,
+      );
+      const signatureValid = pageCallbackValid || originCallbackValid || noCallbackValid;
+
+      // Safe diagnostics only: never log the challenge text, nonce, signature,
+      // key, or owner identity. This identifies the connector path and the
+      // exact standards-compliant NEP-413 callback form that verifies.
+      const adapterId = typeof body.walletAdapterId === "string" &&
+          /^[a-z0-9_-]{1,64}$/i.test(body.walletAdapterId)
+        ? body.walletAdapterId
+        : "unknown";
+      let signatureBytes = 0;
+      try { signatureBytes = base64Decode(signed.signature).length; } catch { /* record zero */ }
+      console.warn("[MANDATE][risk-review-nep413]", JSON.stringify({
+        adapterId,
+        callbackPageValid: pageCallbackValid,
+        callbackOriginValid: originCallbackValid,
+        callbackOmittedValid: noCallbackValid,
+        callbackUrlProvided: typeof body.callbackUrl === "string",
+        signerMatchesChallenge: signed.accountId === challenge.signer_account_id &&
+          signed.publicKey === challenge.signer_public_key,
+        signatureBytes,
+        messageBytes: encoder.encode(challenge.message).length,
+        nonceBytes: nonceBytes.length,
+      }));
       if (!signatureValid) return reply({ error: "NEP-413 counterparty review signature verification failed." }, 403);
 
       const policy = await getPolicy(admin, user.id);
