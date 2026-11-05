@@ -29,8 +29,8 @@ select ok(
 select ok(
   not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'INSERT')
   and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'UPDATE')
-  and has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'SELECT'),
-  'service role can read evidence but cannot bypass audited report RPCs'
+  and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'SELECT'),
+  'service role cannot access report rows directly and must use audited RPCs'
 );
 
 select throws_ok(

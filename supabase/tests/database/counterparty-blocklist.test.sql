@@ -16,7 +16,7 @@ select ok(
   'anon and authenticated roles cannot read the private blocklist directly'
 );
 select ok(
-  has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'SELECT')
+  not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'SELECT')
   and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'INSERT')
   and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'UPDATE')
   and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'DELETE'),

@@ -53,7 +53,6 @@ alter table mandate_private.counterparty_blocklist_audit enable row level securi
 revoke all on mandate_private.counterparty_blocklist_reviewer_roles from public, anon, authenticated, service_role;
 revoke all on mandate_private.counterparty_blocklist_audit from public, anon, authenticated, service_role;
 revoke all on mandate_private.counterparty_blocklist from public, anon, authenticated, service_role;
-grant select on mandate_private.counterparty_blocklist to service_role;
 
 alter table mandate_private.counterparty_blocklist
   add column if not exists reviewer_note text;

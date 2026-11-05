@@ -90,9 +90,10 @@ export async function collectAndEvaluateNearTestnetCounterparty(
       evidenceRef: trustedBlocklist.evidenceRef,
       reason: trustedBlocklist.reason,
     });
+    const pendingBytes = new TextEncoder().encode(pendingCanonical);
     const pendingDigest = new Uint8Array(await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(pendingCanonical),
+      pendingBytes.buffer as ArrayBuffer,
     ));
     const pendingFingerprint = "sha256:" +
       Array.from(pendingDigest, (byte) => byte.toString(16).padStart(2, "0")).join("");
