@@ -118,3 +118,14 @@ The owner acknowledgement is an intended stage in this design. A successful ackn
 - Claiming the live Meteor browser signature is verified before the actual fresh browser test passes.
 
 The Supabase leaked-password-protection advisor finding remains a documented pre-launch limitation under the project's no-spend constraint. It is not the cause of the current NEP-413 failure.
+
+## PR and version cleanup performed during this audit
+
+The following obsolete drafts were closed with an explanatory comment. Their branches, commits and discussions were not deleted:
+
+- PR #5 and PR #6: superseded by merged multi-wallet/recovery release PR #15.
+- PR #7: recovery-code-reset implementation is in the merged release line; its real Meteor browser test remains an external verification gate.
+- PR #9: superseded by the exact migration version alignment and clean replay/pgTAP workflow.
+- PR #10: superseded by the merged NEP-413 verifier that accepts only cryptographically valid callback forms, including Meteor's Option::None behavior.
+
+PR #8 remains open as the historical counterparty-risk foundation. PR #16 remains the single active Phase 2 implementation under test. PR #2 remains a historical Testnet-transfer documentation item.
