@@ -367,10 +367,13 @@ export function NearWalletPanel({
         signerId: accountId,
       } as Parameters<typeof wallet.signMessage>[0] & { callbackUrl: string });
       const signedMessage = normalizeSignedMessage(walletSignedMessage, accountId);
+      const walletAdapterId =
+        (wallet as unknown as { manifest?: { id?: unknown } }).manifest?.id;
       const result = await authorizationRequest({
         action: "risk_review_verify",
         challengeId: challenge.challengeId,
         callbackUrl,
+        walletAdapterId: typeof walletAdapterId === "string" ? walletAdapterId : "unknown",
         signedMessage,
       });
       if (result.reviewed !== true || result.proposalId !== proposalId ||
