@@ -167,7 +167,7 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
         ...initial.decision,
         // Simulate an upstream reason containing Unicode punctuation and
         // diacritics; the wallet-signed challenge must still be ASCII-only.
-        reasons: [...initial.decision.reasons, "External review note — café evidence."],
+        reasons: ["External review note — café evidence.", ...initial.decision.reasons],
       },
       counterpartyRiskFingerprint: fingerprint,
     };
