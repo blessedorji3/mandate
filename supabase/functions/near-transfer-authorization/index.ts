@@ -1011,7 +1011,7 @@ export async function handleRequest(req: Request) {
         `Signer wallet: ${signerAccountId}`,
         `Challenge: ${challengeId}`,
         `Nonce: ${nonceHex}`,
-      ].join("\\n");
+      ].join("\n");
       const { error: createError } = await admin.rpc("create_counterparty_risk_review_challenge_v1", {
         p_owner_id: user.id,
         p_id: challengeId,
