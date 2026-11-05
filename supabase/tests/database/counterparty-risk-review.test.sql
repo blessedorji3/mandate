@@ -211,6 +211,24 @@ set proposal = jsonb_set(proposal, '{counterpartyRisk,outcome}', '"WARN"'::jsonb
 where owner_id = '41000000-0000-4000-8000-000000000001'
   and proposal_id = 'review-warn-proposal';
 
+select is(
+  public.create_counterparty_risk_review_challenge_v1(
+    '41000000-0000-4000-8000-000000000001',
+    '44000000-0000-4000-8000-000000000003',
+    'review-warn-proposal',
+    '42000000-0000-4000-8000-000000000001',
+    1,
+    'confirmwithmandate.testnet',
+    repeat('a',64),
+    'review-owner.testnet',
+    'ed25519:' || repeat('4',44),
+    repeat('5',64),
+    'I acknowledge this warning for this proposal only'
+  ),
+  '44000000-0000-4000-8000-000000000003'::uuid,
+  'a fresh WARN review challenge can be created before blocklist confirmation'
+);
+
 insert into mandate_private.counterparty_blocklist
   (id, network, account_id, status, reason, evidence_ref, source_type,
    reporter_owner_id, reviewer_owner_id, reviewed_at)
@@ -222,6 +240,16 @@ values
    '41000000-0000-4000-8000-000000000001',
    '41000000-0000-4000-8000-000000000002',
    now());
+
+select is(
+  public.complete_counterparty_risk_review_v1(
+    '41000000-0000-4000-8000-000000000001',
+    '44000000-0000-4000-8000-000000000003',
+    'must-not-be-recorded'
+  ),
+  null,
+  'a confirmed blocklist entry prevents completion of an outstanding WARN review'
+);
 
 select is(
   public.consume_near_transfer_authorization_v2(
