@@ -125,6 +125,34 @@ select is(
   'owner review does not change the evaluator outcome'
 );
 
+-- A relink can keep the same account ID while changing its public key.
+-- The old key's acknowledgement must not authorize the new key.
+update mandate_private.near_owner_wallets
+set public_key = 'ed25519:' || repeat('5',44)
+where owner_id = '41000000-0000-4000-8000-000000000001'
+  and account_id = 'review-owner.testnet';
+
+select throws_ok(
+  $$select public.create_near_transfer_challenge_v2(
+    '41000000-0000-4000-8000-000000000001',
+    '45000000-0000-4000-8000-000000000004',
+    repeat('c',64), 'changed-key transfer attempt',
+    'review-owner.testnet',
+    '42000000-0000-4000-8000-000000000001',
+    1,
+    'review-warn-proposal',
+    repeat('d',64)
+  )$$,
+  'P0001',
+  'A current signed owner risk review is required',
+  'a WARN acknowledgement from a previous wallet key cannot authorize a relinked key'
+);
+
+update mandate_private.near_owner_wallets
+set public_key = 'ed25519:' || repeat('4',44)
+where owner_id = '41000000-0000-4000-8000-000000000001'
+  and account_id = 'review-owner.testnet';
+
 select is(
   public.create_near_transfer_challenge_v2(
     '41000000-0000-4000-8000-000000000001',
@@ -156,6 +184,26 @@ select ok(
   'owner review is consumed when bound to the one-time wallet challenge'
 );
 
+update mandate_private.near_owner_wallets
+set public_key = 'ed25519:' || repeat('5',44)
+where owner_id = '41000000-0000-4000-8000-000000000001'
+  and account_id = 'review-owner.testnet';
+
+select is(
+  public.finalize_near_transfer_challenge_v2(
+    '41000000-0000-4000-8000-000000000001',
+    '45000000-0000-4000-8000-000000000001',
+    repeat('f',64)
+  ),
+  false,
+  'finalization rejects a review signed by a key that is no longer registered'
+);
+
+update mandate_private.near_owner_wallets
+set public_key = 'ed25519:' || repeat('4',44)
+where owner_id = '41000000-0000-4000-8000-000000000001'
+  and account_id = 'review-owner.testnet';
+
 select is(
   public.finalize_near_transfer_challenge_v2(
     '41000000-0000-4000-8000-000000000001',
@@ -165,6 +213,32 @@ select is(
   true,
   'reviewed WARN challenge can finalize into a short-lived authorization receipt'
 );
+
+update mandate_private.near_owner_wallets
+set public_key = 'ed25519:' || repeat('5',44)
+where owner_id = '41000000-0000-4000-8000-000000000001'
+  and account_id = 'review-owner.testnet';
+
+select is(
+  public.consume_near_transfer_authorization_v2(
+    '41000000-0000-4000-8000-000000000001',
+    repeat('f',64),
+    'review-owner.testnet',
+    'testnet',
+    'confirmwithmandate.testnet',
+    'NEAR',
+    '1000000000000000000000',
+    'transfer',
+    repeat('e',64)
+  ),
+  false,
+  'receipt consumption rejects a review signed by a key that is no longer registered'
+);
+
+update mandate_private.near_owner_wallets
+set public_key = 'ed25519:' || repeat('4',44)
+where owner_id = '41000000-0000-4000-8000-000000000001'
+  and account_id = 'review-owner.testnet';
 
 update public.authorization_decisions
 set proposal = jsonb_set(proposal, '{counterpartyRisk,outcome}', '"BLOCK"'::jsonb)
