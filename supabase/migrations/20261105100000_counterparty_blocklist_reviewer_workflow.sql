@@ -131,12 +131,12 @@ declare
   v_recent_count integer;
 begin
   if p_reporter_owner_id is null
-     or p_network <> 'testnet'
+     or p_network is distinct from 'testnet'
      or p_account_id is null or length(p_account_id) not between 2 and 64
      or p_account_id !~ '^[a-z0-9]+([-_][a-z0-9]+)*(\.[a-z0-9]+([-_][a-z0-9]+)*)*$'
      or p_reason is null or length(trim(p_reason)) not between 8 and 500
      or p_evidence_ref is null or length(trim(p_evidence_ref)) not between 8 and 2048
-     or p_source_type not in ('chain_tx', 'explorer', 'security_advisory', 'other')
+     or p_source_type is null or p_source_type not in ('chain_tx', 'explorer', 'security_advisory', 'other')
      or (p_evidence_sha256 is not null and p_evidence_sha256 !~ '^[0-9a-f]{64}$') then
     raise exception 'Invalid counterparty report';
   end if;
@@ -186,7 +186,7 @@ declare
 begin
   if p_actor_owner_id is null or p_subject_owner_id is null
      or p_actor_owner_id = p_subject_owner_id
-     or p_action not in ('grant', 'revoke')
+     or p_action is null or p_action not in ('grant', 'revoke')
      or p_reason is null or length(trim(p_reason)) not between 8 and 500 then
     raise exception 'Invalid reviewer provisioning request';
   end if;
@@ -206,6 +206,10 @@ begin
   where r.owner_id = p_subject_owner_id
   for update;
   if found then v_before := to_jsonb(v_role); end if;
+
+  if v_role.id is not null and v_role.role = 'admin' then
+    raise exception 'Administrator roles cannot be altered through reviewer provisioning';
+  end if;
 
   if p_action = 'grant' then
     if v_role.id is not null and v_role.is_active then
@@ -294,7 +298,7 @@ declare
   v_action text;
 begin
   if p_reviewer_owner_id is null or p_report_id is null
-     or p_decision not in ('confirmed', 'rejected')
+     or p_decision is null or p_decision not in ('confirmed', 'rejected')
      or p_review_note is null or length(trim(p_review_note)) not between 8 and 500 then
     raise exception 'Invalid counterparty review decision';
   end if;

@@ -16,7 +16,7 @@ This feature branch integrates the independent counterparty-risk engine into bot
 - The Developer API derives the owner from the validated API-key database record.
 - The wallet-authorization Edge Function derives owner identity from the authenticated Supabase user.
 - Receipt counts are filtered by both owner ID and target account.
-- The blocklist lookup is available only through a service-role-only database function.
+- The blocklist lookup, queue, report submission/review, reviewer provisioning, and audit history are available only through service-role RPCs. Direct client and service-role table access is revoked.
 - The web route uses a server-only Supabase service-role secret. Missing configuration produces unavailable evidence and WARN, never a clear result.
 
 ## Wallet-authorization boundary

@@ -67,6 +67,11 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     if (url.startsWith("https://tx.test.fastnear.com/v0/account")) {
       return Response.json({ account_txs: [], txs_count: 0, resume_token: null });
     }
+    if (url === "https://rpc.testnet.fastnear.com" && body.id === "mandate-access-key-check") {
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: {
+        keys: [{ public_key: publicKey, access_key: { permission: "FullAccess" } }],
+      } });
+    }
     const rpcName = url.match(/\/rest\/v1\/rpc\/([^/?]+)/)?.[1];
     if (rpcName) {
       rpcCalls.push({ name: rpcName, body });
