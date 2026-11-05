@@ -274,12 +274,13 @@ function proposalId() {
   return "near-test-" + crypto.randomUUID();
 }
 
-async function assessCurrentCounterpartyRisk(
+async function assessCounterpartyRiskForTarget(
   admin: MandateSupabaseClient,
   ownerId: string,
+  targetAccountId: string,
   excludeProposalId?: string,
 ) {
-  return assessCounterpartyRisk(ownerId, TEST_TRANSFER.receiverId, {
+  return assessCounterpartyRisk(ownerId, targetAccountId, {
     findBlocklistRecord: async (network, accountId) => {
       const lookup = await admin.rpc("lookup_counterparty_blocklist", {
         p_network: network,
@@ -302,6 +303,19 @@ async function assessCurrentCounterpartyRisk(
       return result.count;
     },
   });
+}
+
+async function assessCurrentCounterpartyRisk(
+  admin: MandateSupabaseClient,
+  ownerId: string,
+  excludeProposalId?: string,
+) {
+  return assessCounterpartyRiskForTarget(
+    admin,
+    ownerId,
+    TEST_TRANSFER.receiverId,
+    excludeProposalId,
+  );
 }
 
 export async function handleRequest(req: Request) {
@@ -330,6 +344,61 @@ export async function handleRequest(req: Request) {
   if (!isRecord(body) || typeof body.action !== "string") return reply({ error: "An action is required." }, 400);
 
   try {
+    if (body.action === "counterparty_inspect") {
+      const proposal = body.proposal;
+      if (!isRecord(proposal) ||
+          typeof proposal.id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(proposal.id) ||
+          (proposal.agentId !== undefined &&
+            (typeof proposal.agentId !== "string" || proposal.agentId.length < 1 || proposal.agentId.length > 128)) ||
+          typeof proposal.actionType !== "string" ||
+          !["transfer", "token_approval", "swap", "contract_call"].includes(proposal.actionType) ||
+          typeof proposal.asset !== "string" || proposal.asset.length < 1 || proposal.asset.length > 32 ||
+          typeof proposal.amountAtomic !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(proposal.amountAtomic) ||
+          typeof proposal.target !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(proposal.target) ||
+          proposal.network !== "testnet" ||
+          (proposal.protocol !== undefined &&
+            (typeof proposal.protocol !== "string" || proposal.protocol.length < 1 || proposal.protocol.length > 128)) ||
+          (proposal.approvalAmountAtomic !== undefined &&
+            (typeof proposal.approvalAmountAtomic !== "string" ||
+              !/^(0|[1-9][0-9]{0,77})$/.test(proposal.approvalAmountAtomic)))) {
+        return reply({ error: "A valid NEAR Testnet proposal is required for counterparty inspection." }, 400);
+      }
+
+      const policy = await getPolicy(admin, user.id);
+      if (!policy) return reply({ error: "Create and activate a security policy before inspecting a counterparty." }, 409);
+      const riskAssessment = await assessCounterpartyRiskForTarget(
+        admin,
+        user.id,
+        proposal.target,
+      );
+      const proposalForFingerprint = {
+        id: proposal.id,
+        ...(typeof proposal.agentId === "string" ? { agentId: proposal.agentId } : {}),
+        actionType: proposal.actionType,
+        asset: proposal.asset,
+        amountAtomic: proposal.amountAtomic,
+        target: proposal.target,
+        network: "testnet",
+        ...(typeof proposal.protocol === "string" ? { protocol: proposal.protocol } : {}),
+        ...(typeof proposal.approvalAmountAtomic === "string"
+          ? { approvalAmountAtomic: proposal.approvalAmountAtomic }
+          : {}),
+      };
+      const counterpartyRiskFingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposal: proposalForFingerprint,
+        risk: riskAssessment.decision,
+      });
+      return reply({
+        risk: riskAssessment.decision,
+        riskCollection: riskAssessment.collection,
+        counterpartyRiskFingerprint,
+        policy: { id: policy.id, version: policy.version },
+      });
+    }
+
     if (body.action === "wallet_list") {
       const { data, error } = await admin.rpc("list_near_owner_wallets_v1", {
         p_owner_id: user.id,
