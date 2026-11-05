@@ -268,7 +268,7 @@ select is(
 );
 
 select throws_ok(
-  $select public.create_near_transfer_challenge_v2(
+  $$select public.create_near_transfer_challenge_v2(
     '41000000-0000-4000-8000-000000000001',
     '45000000-0000-4000-8000-000000000003',
     repeat('3',64), 'new attempt after blocklist confirmation',
@@ -277,7 +277,7 @@ select throws_ok(
     1,
     'review-warn-proposal',
     repeat('4',64)
-  )$,
+  )$$,
   'P0001',
   'Counterparty risk BLOCK cannot be overridden by owner review',
   'a fresh confirmed blocklist entry prevents new challenge creation despite a prior WARN acknowledgement'
