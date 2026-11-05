@@ -1268,9 +1268,14 @@ export async function handleRequest(req: Request) {
       if (!findActiveFullAccessKey(accessKeys, signed.publicKey)) {
         return reply({ error: "The reviewing wallet key is no longer an active FullAccess key." }, 403);
       }
-      const signatureValid = await verifyNep413(
+      // The callback URL is derived from the request Origin, which has already
+      // passed the strict allowlist check above. This matches the explicit
+      // callbackUrl sent by the browser. Wallet adapters such as Meteor may
+      // legitimately sign NEP-413 Option::None, so accept either standards-
+      // compliant form without trusting a callback supplied in request JSON.
+      const signatureValid = await verifyNep413WithOptionalCallback(
         challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
-        signed.publicKey, signed.signature,
+        signed.publicKey, signed.signature, origin,
       );
       if (!signatureValid) return reply({ error: "NEP-413 counterparty review signature verification failed." }, 403);
 
