@@ -933,7 +933,7 @@ export async function handleRequest(req: Request) {
       const proposalIdValue = body.proposalId;
       const signerAccountId = body.signerAccountId;
       if (typeof proposalIdValue !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(proposalIdValue) ||
-          typeof signerAccountId !== "string" || !/^[a-z0-9._-]{2,64}\\.testnet$/.test(signerAccountId)) {
+          typeof signerAccountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(signerAccountId)) {
         return reply({ error: "A valid inspected proposal and registered Testnet wallet are required." }, 400);
       }
 
