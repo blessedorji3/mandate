@@ -1,5 +1,7 @@
 # MANDATE database security foundation
 
+> **Historical snapshot — 2026-10-31.** This note records the original database foundation, not the complete current schema. Subsequent changes are tracked in `supabase/migrations/`. For the hosted database, migration ledger, current RLS/RPC verification and deployment state, use `docs/2026-11-05-audit-and-demo-readiness.md` and the dated update in `docs/stage-one-security-and-deployment-review.md`. Do not treat the original SQL below as a complete rebuild script for the current project.
+
 Project: `MANDATE` (separate Supabase project)
 Project ref: `abyyyehfivahedvjrcwj`
 Created: 2026-10-31
