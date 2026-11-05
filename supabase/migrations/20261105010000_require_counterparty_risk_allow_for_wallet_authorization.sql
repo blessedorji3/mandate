@@ -1,22 +1,15 @@
--- The wallet execution boundary independently enforces counterparty risk.
--- The Edge Function must also re-assess live evidence before each transition;
--- these database predicates prevent receipts without an ALLOW risk result.
+-- Add an independent counterparty-risk requirement without weakening the
+-- existing delayed-recovery freeze, owner lock, active-wallet or policy checks.
 create or replace function public.create_near_transfer_challenge_v2(
-  p_owner_id uuid,
-  p_id uuid,
-  p_nonce_hex text,
-  p_message text,
-  p_signer_account_id text,
-  p_policy_id uuid,
-  p_policy_version integer,
-  p_proposal_id text,
-  p_action_digest text
+  p_owner_id uuid, p_id uuid, p_nonce_hex text, p_message text,
+  p_signer_account_id text, p_policy_id uuid, p_policy_version integer,
+  p_proposal_id text, p_action_digest text
 )
 returns uuid
 language plpgsql
 security definer
-set search_path to 'pg_catalog', 'public', 'mandate_private'
-as $function$
+set search_path = pg_catalog, public, mandate_private
+as $$
 declare
   v_policy public.security_policies%rowtype;
   v_recent_count integer;
@@ -29,18 +22,40 @@ begin
     raise exception 'Invalid challenge data';
   end if;
 
+  -- Preserve the release's owner-scoped serialization and recovery freeze first.
+  perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text, 0));
+  if exists (
+    select 1 from mandate_private.near_wallet_recovery_requests
+    where owner_id = p_owner_id and status = 'pending'
+  ) then
+    raise exception 'Financial authorizations are frozen while wallet recovery is pending';
+  end if;
+
+  if not exists (
+    select 1 from mandate_private.near_owner_wallets
+    where owner_id = p_owner_id
+      and account_id = p_signer_account_id
+      and revoked_at is null
+  ) then
+    raise exception 'The signing wallet is not the active MANDATE sender wallet';
+  end if;
+
   select count(*) into v_recent_count
-    from mandate_private.near_transfer_challenges
-    where owner_id = p_owner_id and created_at > now() - interval '5 minutes';
-  if v_recent_count >= 10 then raise exception 'Transfer challenge rate limit exceeded'; end if;
+  from mandate_private.near_transfer_challenges
+  where owner_id = p_owner_id
+    and created_at > now() - interval '5 minutes';
+  if v_recent_count >= 10 then
+    raise exception 'Transfer challenge rate limit exceeded';
+  end if;
 
   if exists (
-    select 1 from mandate_private.near_transfer_receipts r
-    where r.owner_id = p_owner_id and r.proposal_id = p_proposal_id
+    select 1 from mandate_private.near_transfer_receipts
+    where owner_id = p_owner_id and proposal_id = p_proposal_id
   ) then
     raise exception 'This proposal already has a consumed authorization. Inspect a new proposal before attempting another transfer.';
   end if;
 
+  -- Risk must be ALLOW on the exact owner-scoped inspected proposal.
   if not exists (
     select 1 from public.authorization_decisions d
     where d.owner_id = p_owner_id
@@ -50,8 +65,10 @@ begin
     raise exception 'Proposal counterparty risk is not ALLOW';
   end if;
 
-  select * into v_policy from public.security_policies
-   where id = p_policy_id and owner_id = p_owner_id and active = true limit 1;
+  select * into v_policy
+  from public.security_policies
+  where id = p_policy_id and owner_id = p_owner_id and active = true
+  limit 1;
   if not found or v_policy.version <> p_policy_version then
     raise exception 'Policy changed or inactive';
   end if;
@@ -72,21 +89,42 @@ begin
      'transfer', p_action_digest, now() + interval '3 minutes');
   return p_id;
 end;
-$function$;
+$$;
 
 create or replace function public.finalize_near_transfer_challenge_v2(
   p_owner_id uuid, p_id uuid, p_token_hash text
 ) returns boolean
-language plpgsql security definer
+language plpgsql
+security definer
 set search_path = pg_catalog, public, mandate_private
 as $$
-declare c mandate_private.near_transfer_challenges%rowtype;
+declare
+  c mandate_private.near_transfer_challenges%rowtype;
 begin
   if p_owner_id is null or p_token_hash !~ '^[0-9a-f]{64}$' then return false; end if;
-  select * into c from mandate_private.near_transfer_challenges
-   where id = p_id and owner_id = p_owner_id and consumed_at is null
-     and expires_at > now() for update;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text, 0));
+  if exists (
+    select 1 from mandate_private.near_wallet_recovery_requests
+    where owner_id = p_owner_id and status = 'pending'
+  ) then
+    return false;
+  end if;
+
+  select * into c
+  from mandate_private.near_transfer_challenges
+  where id = p_id and owner_id = p_owner_id
+    and consumed_at is null and expires_at > now()
+  for update;
   if not found then return false; end if;
+
+  if not exists (
+    select 1 from mandate_private.near_owner_wallets
+    where owner_id = p_owner_id
+      and account_id = c.signer_account_id
+      and revoked_at is null
+  ) then return false; end if;
+
   if not exists (
     select 1 from public.security_policies p
     where p.id = c.policy_id and p.owner_id = p_owner_id
@@ -96,16 +134,19 @@ begin
       and p.max_amount_atomic::numeric >= 1000000000000000000000::numeric
       and p.require_approval_for_all_actions = false
   ) then return false; end if;
+
   if not exists (
     select 1 from public.authorization_decisions d
     where d.owner_id = p_owner_id
       and d.proposal_id = c.proposal_id
       and d.proposal->'counterpartyRisk'->>'outcome' = 'ALLOW'
   ) then return false; end if;
+
   update mandate_private.near_transfer_challenges
-    set consumed_at = now()
-    where id = c.id and owner_id = p_owner_id and consumed_at is null;
+  set consumed_at = now()
+  where id = c.id and owner_id = p_owner_id and consumed_at is null;
   if not found then return false; end if;
+
   insert into mandate_private.near_transfer_receipts
     (id, owner_id, token_hash, signer_account_id, policy_id, policy_version,
      proposal_id, network, receiver_id, asset, amount_atomic, action_type,
@@ -124,23 +165,41 @@ create or replace function public.consume_near_transfer_authorization_v2(
   p_network text, p_receiver_id text, p_asset text,
   p_amount_atomic text, p_action_type text, p_action_digest text
 ) returns boolean
-language plpgsql security definer
+language plpgsql
+security definer
 set search_path = pg_catalog, public, mandate_private
 as $$
-declare r mandate_private.near_transfer_receipts%rowtype;
+declare
+  r mandate_private.near_transfer_receipts%rowtype;
 begin
   if p_owner_id is null or p_token_hash !~ '^[0-9a-f]{64}$'
      or p_action_digest !~ '^[0-9a-f]{64}$' then return false; end if;
-  select * into r from mandate_private.near_transfer_receipts
-   where owner_id = p_owner_id and token_hash = decode(p_token_hash, 'hex')
-     and consumed_at is null and expires_at > now()
-     and signer_account_id = p_signer_account_id
-     and network = p_network and receiver_id = p_receiver_id
-     and asset = p_asset and amount_atomic = p_amount_atomic
-     and action_type = p_action_type and action_digest = p_action_digest
-   for update;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_owner_id::text, 0));
+  if exists (
+    select 1 from mandate_private.near_wallet_recovery_requests
+    where owner_id = p_owner_id and status = 'pending'
+  ) then
+    return false;
+  end if;
+
+  select * into r
+  from mandate_private.near_transfer_receipts
+  where owner_id = p_owner_id and token_hash = decode(p_token_hash, 'hex')
+    and consumed_at is null and expires_at > now()
+    and signer_account_id = p_signer_account_id
+    and network = p_network and receiver_id = p_receiver_id
+    and asset = p_asset and amount_atomic = p_amount_atomic
+    and action_type = p_action_type and action_digest = p_action_digest
+  for update;
   if not found then return false; end if;
+
   if not exists (
+    select 1 from mandate_private.near_owner_wallets w
+    where w.owner_id = p_owner_id
+      and w.account_id = p_signer_account_id
+      and w.revoked_at is null
+  ) or not exists (
     select 1 from public.security_policies p
     where p.id = r.policy_id and p.owner_id = p_owner_id
       and p.active = true and p.version = r.policy_version
@@ -148,16 +207,20 @@ begin
       and 'confirmwithmandate.testnet' = any(p.allowed_recipients)
       and p.max_amount_atomic::numeric >= 1000000000000000000000::numeric
       and p.require_approval_for_all_actions = false
-  ) then return false; end if;
+  ) then
+    return false;
+  end if;
+
   if not exists (
     select 1 from public.authorization_decisions d
     where d.owner_id = p_owner_id
       and d.proposal_id = r.proposal_id
       and d.proposal->'counterpartyRisk'->>'outcome' = 'ALLOW'
   ) then return false; end if;
+
   update mandate_private.near_transfer_receipts
-    set consumed_at = now()
-    where id = r.id and owner_id = p_owner_id and consumed_at is null;
+  set consumed_at = now()
+  where id = r.id and owner_id = p_owner_id and consumed_at is null;
   return found;
 end;
 $$;

@@ -4,6 +4,14 @@ select no_plan();
 insert into auth.users (id, aud, role, email, created_at, updated_at)
 values ('31000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'risk-gate-owner@example.test', now(), now());
 
+insert into mandate_private.near_owner_wallets
+  (owner_id, account_id, public_key, verified_at, revoked_at)
+values
+  ('31000000-0000-4000-8000-000000000001',
+   'owner-wallet.testnet',
+   'ed25519:' || repeat('3',44),
+   now(), null);
+
 insert into public.security_policies
   (id, owner_id, name, version, active, max_amount_atomic, allowed_recipients, allowed_action_types,
    require_approval_for_token_approvals, require_approval_for_all_actions)
