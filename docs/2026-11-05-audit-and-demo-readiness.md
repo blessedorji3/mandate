@@ -44,6 +44,10 @@ This is a source and infrastructure audit, not a full independent penetration te
 
 The older PR and review documents contain historical snapshots. Do not treat statements in an old section as the current live deployment state when a later dated section supersedes them.
 
+## Wallet dependency version pin
+
+- The application now pins `@hot-labs/near-connect` to exactly `0.11.4`, the version used during the audit. Its tagged Meteor adapter source explicitly calls `wallet.signMessage({ message, nonce, recipient, accountId, state })` and does not forward `callbackUrl`. The Phase 2 integration test mirrors that contract. This removes direct adapter-version drift; a committed npm lockfile is still a separate reproducibility improvement.
+
 ## Current wallet signing contract
 
 The current Meteor adapter source omits the callback URL when invoking `MeteorWallet.signMessage`. MANDATE therefore sends the browser's page URL to the Edge Function for same-origin validation, but the exact Meteor signature must be verified against the NEP-413 optional callback `None` form.
