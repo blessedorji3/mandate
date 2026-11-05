@@ -105,7 +105,7 @@ select ok(
 );
 
 select throws_ok(
-  $sql$1 public.review_counterparty_blocklist_report_v1(
+  $sql$select public.review_counterparty_blocklist_report_v1(
     '61000000-0000-4000-8000-000000000003',
     (select id from mandate_private.counterparty_blocklist where account_id = 'reported.testnet' limit 1),
     'confirmed', 'Self review is forbidden'
@@ -116,7 +116,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  $sql$1 public.review_counterparty_blocklist_report_v1(
+  $sql$select public.review_counterparty_blocklist_report_v1(
     '61000000-0000-4000-8000-000000000004',
     (select id from mandate_private.counterparty_blocklist where account_id = 'reported.testnet' limit 1),
     'confirmed', 'Unprovisioned account cannot decide'
@@ -149,7 +149,7 @@ select ok(
 );
 
 select throws_ok(
-  $sql$1 mandate_private.counterparty_blocklist_audit
+  $sql$update mandate_private.counterparty_blocklist_audit
     set reason = 'tampered audit record'
     where action = 'report_confirmed'$sql$,
   'P0001',
@@ -158,7 +158,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  $sql$1 from mandate_private.counterparty_blocklist_audit
+  $sql$delete from mandate_private.counterparty_blocklist_audit
     where action = 'report_confirmed'$sql$,
   'P0001',
   'Counterparty blocklist audit records are append-only',
@@ -177,7 +177,7 @@ select is(
 );
 
 select throws_ok(
-  $sql$1 public.list_counterparty_blocklist_review_queue_v1(
+  $sql$select public.list_counterparty_blocklist_review_queue_v1(
     '61000000-0000-4000-8000-000000000002'
   )$sql$,
   'P0001',
@@ -186,7 +186,7 @@ select throws_ok(
 );
 
 select throws_ok(
-  $sql$1 public.list_counterparty_blocklist_audit_v1(
+  $sql$select public.list_counterparty_blocklist_audit_v1(
     '61000000-0000-4000-8000-000000000003', 100
   )$sql$,
   'P0001',
