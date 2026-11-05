@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@1";
+import { assertEquals } from "jsr:@std/assert@1";
 import { KeyPairEd25519, KeyPairSigner } from "npm:near-api-js@7.3.1";
 import { recoveryTestUtils } from "./recovery-security.ts";
 
@@ -449,6 +449,19 @@ Deno.test("NEAR transfer authorization completes the signed HTTP lifecycle under
     assertEquals(consumeCalls, 3, "only the signer mismatch, first valid use and replay reach the consume RPC");
 
     const bindsBeforeSubstitution = bindCalls;
+    const malformedTransactionHash = await post("verify_transaction", {
+      transactionHash: "0".repeat(43),
+      signerAccountId: ACCOUNT_ID,
+      receipt,
+    });
+    assertEquals(
+      malformedTransactionHash.response.status,
+      409,
+      "malformed Base58 transaction hashes must be rejected as invalid input",
+    );
+    assertEquals(malformedTransactionHash.body.code, "TRANSACTION_DOES_NOT_MATCH_AUTHORIZATION");
+    assertEquals(bindCalls, bindsBeforeSubstitution, "malformed hashes must never reach receipt binding");
+
     for (const transactionHash of [wrongRecipientHash, wrongAmountHash]) {
       const substitutedTransaction = await post("verify_transaction", {
         transactionHash,
