@@ -33,7 +33,7 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
   const rpcCalls: Array<{ name: string; body: Record<string, unknown> }> = [];
   const ownerIds: string[] = [];
   const reviewId = "73000000-0000-4000-8000-000000000001";
-  let challengeRow: Record<string, unknown> | null = null;
+  const challengeRows: Array<Record<string, unknown>> = [];
   let challengeConsumed = false;
   let completeCalls = 0;
 
@@ -77,7 +77,7 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
           ? [{ account_id: ACCOUNT_ID, public_key: publicKey, revoked_at: null }] : []);
       }
       if (rpcName === "create_counterparty_risk_review_challenge_v1") {
-        challengeRow = {
+        const challengeRow: Record<string, unknown> = {
           id: body.p_id,
           proposal_id: body.p_proposal_id,
           policy_id: body.p_policy_id,
@@ -90,15 +90,18 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
           message: body.p_message,
           expires_at: new Date(Date.now() + 180_000).toISOString(),
         };
+        challengeRows.push(challengeRow);
         return Response.json(body.p_id);
       }
       if (rpcName === "get_counterparty_risk_review_challenge_v1") {
+        const currentChallenge = challengeRows[challengeRows.length - 1];
         return Response.json(!challengeConsumed && body.p_owner_id === OWNER_ID &&
-          body.p_id === challengeRow?.id && challengeRow ? [challengeRow] : []);
+          body.p_id === currentChallenge?.id ? [currentChallenge] : []);
       }
       if (rpcName === "complete_counterparty_risk_review_v1") {
         completeCalls++;
-        if (body.p_owner_id !== OWNER_ID || body.p_id !== challengeRow?.id ||
+        const currentChallenge = challengeRows[challengeRows.length - 1];
+        if (body.p_owner_id !== OWNER_ID || body.p_id !== currentChallenge?.id ||
             typeof body.p_wallet_signature !== "string" || challengeConsumed) return Response.json(null);
         challengeConsumed = true;
         return Response.json(reviewId);
@@ -120,7 +123,7 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
         policy_id: POLICY_ID,
         policy_version: policy.version,
         outcome: "REQUIRE_APPROVAL",
-        proposal,
+        proposal: {},
       });
     }
     return Response.json({ message: "Unexpected request", url, method }, { status: 500 });
