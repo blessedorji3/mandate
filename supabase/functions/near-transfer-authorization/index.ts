@@ -9,6 +9,7 @@ const SECRET_KEYS = Deno.env.get("SUPABASE_SECRET_KEYS");
 let SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 try { if (SECRET_KEYS) SERVICE_KEY = JSON.parse(SECRET_KEYS).default ?? SERVICE_KEY; } catch { /* retain legacy service role key */ }
 const APP_RECIPIENT = "mandate-snowy.vercel.app";
+type MandateSupabaseClient = ReturnType<typeof createClient<any>>;
 const TEST_TRANSFER = {
   network: "testnet",
   receiverId: "confirmwithmandate.testnet",
@@ -108,12 +109,12 @@ function trustedCallbackUrl(req: Request, requestedUrl: unknown): string {
   return requestedUrl;
 }
 async function sha256(bytes: Uint8Array) {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer as ArrayBuffer));
 }
 async function authenticate(req: Request) {
   const authorization = req.headers.get("authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) return null;
-  const userClient = createClient(PROJECT_URL, ANON_KEY, {
+  const userClient = createClient<any>(PROJECT_URL, ANON_KEY, {
     global: { headers: { Authorization: authorization } },
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -121,7 +122,7 @@ async function authenticate(req: Request) {
   if (error || !data.user) return null;
   return data.user;
 }
-async function getPolicy(admin: ReturnType<typeof createClient>, ownerId: string) {
+async function getPolicy(admin: MandateSupabaseClient, ownerId: string) {
   const { data, error } = await admin.from("security_policies")
     .select("id, version, active, max_amount_atomic, allowed_recipients, allowed_action_types, require_approval_for_token_approvals, require_approval_for_all_actions")
     .eq("owner_id", ownerId).eq("active", true)
@@ -255,7 +256,7 @@ function proposalId() {
 }
 
 async function assessCurrentCounterpartyRisk(
-  admin: ReturnType<typeof createClient>,
+  admin: MandateSupabaseClient,
   ownerId: string,
   excludeProposalId?: string,
 ) {
@@ -295,7 +296,7 @@ export async function handleRequest(req: Request) {
   }
   const user = await authenticate(req);
   if (!user) return reply({ error: "Sign in to MANDATE before authorizing a transfer." }, 401);
-  const admin = createClient(PROJECT_URL, SERVICE_KEY, {
+  const admin = createClient<any>(PROJECT_URL, SERVICE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
@@ -1257,7 +1258,7 @@ export async function handleRequest(req: Request) {
       const nonceHex = hex(nonce);
       const message = [
         "MANDATE NEAR TESTNET TRANSFER AUTHORIZATION",
-        "This signature proves control of the signing account. It does not move funds.",
+        "I explicitly approve this exact Testnet transfer under the policy stated below. This signature authorizes only the proposal-bound transfer; it does not move funds. A separate wallet transaction confirmation is still required.",
         `Account: ${signer}`,
         `Network: ${TEST_TRANSFER.network}`,
         `Action: ${TEST_TRANSFER.actionType}`,
