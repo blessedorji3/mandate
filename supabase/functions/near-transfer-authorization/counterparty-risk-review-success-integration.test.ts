@@ -163,7 +163,12 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     });
     const recordedProposal = {
       ...proposal,
-      counterpartyRisk: initial.decision,
+      counterpartyRisk: {
+        ...initial.decision,
+        // Simulate an upstream reason containing Unicode punctuation and
+        // diacritics; the wallet-signed challenge must still be ASCII-only.
+        reasons: [...initial.decision.reasons, "External review note — café evidence."],
+      },
       counterpartyRiskFingerprint: fingerprint,
     };
 
@@ -220,6 +225,12 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     assertEquals(challenged.body.riskFingerprint, fingerprint);
     assertEquals(challenged.body.expiresInSeconds, 300, "risk-review challenge lifetime must match the five-minute UI");
     assertEquals(typeof challenged.body.message, "string");
+    assertEquals(
+      /^[\\x20-\\x7E\\r\\n]*$/.test(String(challenged.body.message)),
+      true,
+      "the exact Meteor NEP-413 risk-review challenge must be ASCII-only, including sanitized external warning reasons",
+    );
+    assert(String(challenged.body.message).includes("External review note - cafe evidence."));
 
     const nonce = Uint8Array.from(
       String(challenged.body.nonceHex).match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)),
