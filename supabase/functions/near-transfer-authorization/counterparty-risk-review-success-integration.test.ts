@@ -223,19 +223,31 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     const nonce = Uint8Array.from(
       String(challenged.body.nonceHex).match(/.{2}/g)!.map((part) => Number.parseInt(part, 16)),
     );
+    const callbackUrl = ORIGIN + "/agent?review=phase2";
     const signed = await signer.signNep413Message(ACCOUNT_ID, {
       message: String(challenged.body.message),
       nonce,
       recipient: String(challenged.body.recipient ?? APP_RECIPIENT),
-      callbackUrl: ORIGIN,
+      callbackUrl,
     });
     const signedMessage = {
       accountId: ACCOUNT_ID,
       publicKey: signed.publicKey.toString(),
       signature: base64(signed.signature),
     };
+    // A same-origin full-page callback is accepted, but a callback to any
+    // other origin must fail before the challenge can be consumed.
+    const foreignCallback = await responseFor("risk_review_verify", {
+      challengeId: challenged.body.challengeId,
+      callbackUrl: "https://attacker.example/collect",
+      signedMessage,
+    });
+    assertEquals(foreignCallback.response.status, 400);
+    assertEquals(completeCalls, 0);
+
     const verified = await responseFor("risk_review_verify", {
       challengeId: challenged.body.challengeId,
+      callbackUrl,
       signedMessage,
     });
     assertEquals(verified.response.status, 200, JSON.stringify(verified.body));
