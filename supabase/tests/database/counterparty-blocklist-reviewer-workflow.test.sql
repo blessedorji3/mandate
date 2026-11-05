@@ -64,15 +64,19 @@ select throws_ok(
   'ordinary users cannot confirm a report'
 );
 
-select is(
+select ok(
   public.provision_counterparty_blocklist_reviewer_v1(
     '61000000-0000-4000-8000-000000000001',
     '61000000-0000-4000-8000-000000000003',
     'grant', 'Assigned after verifying reviewer identity'
-  ),
-  (select id from mandate_private.counterparty_blocklist_reviewer_roles
-    where owner_id = '61000000-0000-4000-8000-000000000003'),
+  ) is not null,
   'administrator can provision a reviewer assignment'
+);
+select ok(
+  exists (select 1 from mandate_private.counterparty_blocklist_reviewer_roles
+    where owner_id = '61000000-0000-4000-8000-000000000003'
+      and role = 'reviewer' and is_active),
+  'the reviewer assignment is persisted as active'
 );
 
 select ok(
@@ -165,15 +169,19 @@ select throws_ok(
   'audit records reject deletes'
 );
 
-select is(
+select ok(
   public.provision_counterparty_blocklist_reviewer_v1(
     '61000000-0000-4000-8000-000000000001',
     '61000000-0000-4000-8000-000000000002',
     'revoke', 'Reviewer access removed after rotation'
-  ),
-  (select id from mandate_private.counterparty_blocklist_reviewer_roles
-    where owner_id = '61000000-0000-4000-8000-000000000002'),
+  ) is not null,
   'administrator can revoke a reviewer assignment'
+);
+select ok(
+  exists (select 1 from mandate_private.counterparty_blocklist_reviewer_roles
+    where owner_id = '61000000-0000-4000-8000-000000000002'
+      and role = 'reviewer' and not is_active and revoked_at is not null),
+  'reviewer revocation is persisted and disables the assignment'
 );
 
 select throws_ok(
