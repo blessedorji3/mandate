@@ -27,12 +27,19 @@ A WARN can reveal only the dedicated Agent Chat owner-review step for the exact 
 
 ## Deployment status
 
-- Feature branch only.
-- The blocklist and wallet risk-gate migrations are included for review and disposable CI; they have not been applied to hosted Supabase.
-- No production Edge Function deployment has taken place.
-- No wallet transaction or Mainnet feature is included.
-- Until the migrations and Edge Functions are deployed together, the missing lookup RPC causes risk to fail closed and prevents new wallet challenges.
+**Historical note:** the original bullets in this section described the pre-deployment review state and were superseded by the controlled Testnet rollout on 2026-11-05. They are retained here as design history only.
+
+**Verified state as of 2026-11-05:**
+
+- The five Phase 2 migrations are applied to hosted Supabase. Their repository filenames have been aligned to the exact version numbers in the hosted migration ledger.
+- Hosted `near-transfer-authorization` is active at **v29** with `verify_jwt=true`.
+- Phase 2 application and database CI passed on tested code revision `9667f340fb43ba21efa7bf5a97535342c57f5bb0`. The subsequent migration-filename-only commits require their own final CI confirmation before merge.
+- The Vercel branch preview is READY at `https://mandate-git-feat-phase-2-counterparty-risk-web3pass.vercel.app`.
+- The hosted database security boundary was checked read-only: the Phase 2 private tables have RLS enabled; client roles cannot read them; the Phase 2 security-definer RPCs use fixed search paths and are executable only by `service_role`.
+- No Mainnet functionality is included. The actual Meteor Wallet browser acknowledgement remains unverified; synthetic integration tests are not a substitute for that live signer round trip.
 - Contract historical code-change evidence remains unavailable, so contract counterparties remain WARN.
+
+The Phase 2 rollout is a controlled NEAR Testnet demo, not a public-production certification. Do not enable Mainnet or describe the real Meteor signing path as verified until the browser acknowledgement is accepted and audited.
 
 ## Proposal-bound owner review for WARN
 
