@@ -1,5 +1,7 @@
 # Phase 2 — PR #8 Counterparty Risk Audit
 
+> **Historical audit scope — 2026-11-03 / PR #8.** This is an audit of the original risk-foundation proposal only. It predates the Phase 2 inspection/owner-review integration, hosted migrations and current Edge Function deployment. For the active implementation and deployment state, use `docs/phase-2-inspection-api-integration.md` and `docs/2026-11-05-audit-and-demo-readiness.md`.
+
 **Audited source:** `feat/hackathon-counterparty-risk` at `af47c402e812a9d5e45a8514f4e57af18bbe4156`  
 **Implementation baseline:** `main` at `196856f2efa72dff32bd37e2c97a543f83adf44f`  
 **Scope:** pure risk evaluator, read-only NEAR state/history collectors, and their server-side composition. No production Supabase, Edge Function, Vercel, wallet, or transaction changes are included.
