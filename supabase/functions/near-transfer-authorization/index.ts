@@ -85,6 +85,23 @@ function borshString(value: string) {
   const bytes = encoder.encode(value);
   return concat(u32(bytes.length), bytes);
 }
+
+// Meteor Wallet's NEP-413 flow has a known compatibility constraint: keep
+// signed review challenges ASCII-only. Normalize external warning text before
+// including it in the message; the exact sanitized message is then stored in
+// the one-time challenge and verified by the server.
+function meteorSafeAsciiText(value: string, maxLength: number): string {
+  return value.normalize("NFKD")
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, "...")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
 function nep413Bytes(message: string, nonce: Uint8Array, recipient: string, callbackUrl?: string) {
   if (nonce.length !== 32) throw new Error("NEP-413 nonce must be 32 bytes");
   if (callbackUrl !== undefined && (!/^https:\/\//.test(callbackUrl) || callbackUrl.length > 2048)) throw new Error("Invalid NEP-413 callback URL");
@@ -1200,8 +1217,12 @@ export async function handleRequest(req: Request) {
         ? inspected.proposal.counterpartyRisk.reasons
             .filter((reason: unknown): reason is string => typeof reason === "string")
             .slice(0, 4)
-            .map((reason: string) => reason.slice(0, 150))
-        : ["Counterparty evidence requires owner review."];
+            .map((reason: string) => meteorSafeAsciiText(reason, 150))
+            .filter((reason: string) => reason.length > 0)
+        : [];
+      if (warningReasons.length === 0) {
+        warningReasons.push("Counterparty evidence requires owner review.");
+      }
       const message = [
         "MANDATE COUNTERPARTY RISK REVIEW",
         "I acknowledge the counterparty risk warning for this exact proposal. This is not transaction approval and does not move funds.",
@@ -1211,13 +1232,16 @@ export async function handleRequest(req: Request) {
         `Counterparty: ${TEST_TRANSFER.receiverId}`,
         `Policy: ${policy.id} version ${policy.version}`,
         `Risk evidence fingerprint: ${fingerprint}`,
-        "Decision: WARN — owner review required",
+        "Decision: WARN - owner review required",
         `Warning reasons: ${warningReasons.join(" | ")}`,
         "Owner acknowledgement: I have read these reasons and accept this counterparty risk for this proposal only.",
         `Signer wallet: ${signerAccountId}`,
         `Challenge: ${challengeId}`,
         `Nonce: ${nonceHex}`,
       ].join("\n");
+      if (!/^[\x20-\x7E\r\n]*$/.test(message)) {
+        return reply({ error: "The risk-review message could not be prepared in the supported wallet-safe format." }, 500);
+      }
       const { error: createError } = await admin.rpc("create_counterparty_risk_review_challenge_v1", {
         p_owner_id: user.id,
         p_id: challengeId,
