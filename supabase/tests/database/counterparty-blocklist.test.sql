@@ -17,10 +17,10 @@ select ok(
 );
 select ok(
   has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'SELECT')
-  and has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'INSERT')
-  and has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'UPDATE')
+  and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'INSERT')
+  and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'UPDATE')
   and not has_table_privilege('service_role', 'mandate_private.counterparty_blocklist', 'DELETE'),
-  'service role has narrow blocklist data privileges'
+  'service role can read evidence but all report changes must use the audited RPC path'
 );
 select ok(
   not has_function_privilege('anon', 'public.lookup_counterparty_blocklist(text,text)', 'EXECUTE')

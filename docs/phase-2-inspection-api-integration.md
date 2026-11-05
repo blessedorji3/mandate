@@ -55,3 +55,42 @@ The database tests cover owner-bound review creation, replay rejection, stored s
 - The current review flow applies only to the fixed 0.001 NEAR NEAR Testnet transfer to confirmwithmandate.testnet; it is not a general-purpose approval framework for swaps, arbitrary contract calls, or other targets.
 - Human review decisions are currently signed by the owner's registered NEAR wallet; there is not a separate administrator/reviewer workflow for curating shared blocklist reports.
 - Contract historical code-change evidence remains unavailable, so contract counterparties continue to receive WARN.
+
+
+## Shared blocklist reviewer governance and bootstrap
+
+The shared blocklist is a reviewer-managed Testnet evidence source. Reporter submissions are not BLOCK signals; they remain pending until a different, actively provisioned reviewer confirms or rejects them.
+
+- A project owner must bootstrap the first administrator once from the Supabase SQL Editor or another trusted database-admin connection. Replace the UUID below with the verified Auth user ID of the designated operator. Never expose this SQL in the client or an API.
+
+```sql
+insert into mandate_private.counterparty_blocklist_reviewer_roles
+  (owner_id, role, is_active, granted_by, grant_reason)
+select id, 'admin', true, null, 'Initial administrator provisioned by the project database owner'
+from auth.users
+where id = '<VERIFIED_AUTH_USER_UUID>'::uuid
+on conflict (owner_id) do nothing;
+
+insert into mandate_private.counterparty_blocklist_audit
+  (actor_owner_id, subject_owner_id, action, reason, after_state)
+select null, id, 'admin_bootstrapped',
+       'Initial administrator provisioned by the project database owner',
+       jsonb_build_object('owner_id', id, 'role', 'admin', 'is_active', true)
+from auth.users
+where id = '<VERIFIED_AUTH_USER_UUID>'::uuid
+  and exists (
+    select 1 from mandate_private.counterparty_blocklist_reviewer_roles r
+    where r.owner_id = id and r.role = 'admin' and r.is_active
+  )
+  and not exists (
+    select 1 from mandate_private.counterparty_blocklist_audit a
+    where a.action = 'admin_bootstrapped' and a.subject_owner_id = id
+  );
+```
+
+- After bootstrap, administrators grant and revoke reviewer assignments through `provision_counterparty_blocklist_reviewer_v1`; reviewers cannot grant roles, approve their own submissions, or mutate rows directly.
+- The Edge Function authenticates the Supabase JWT and always passes the verified `user.id` as actor identity. The database RPC independently checks the active role assignment.
+- Report submissions, confirmations, rejections, reviewer grants, and revocations append before/after snapshots to `mandate_private.counterparty_blocklist_audit`. Audit rows are protected by an append-only trigger and have no direct client/service-role mutation grants.
+- Confirmations are non-overridable BLOCK evidence. Rejected reports remain retained in the private table and audit history but are not returned by the lookup.
+- The review queue and audit history are available only through service-role RPCs after a verified JWT and role check. Admin roles are bootstrap-only; the API can provision reviewer roles, not new administrators.
+- There is no first-admin identity hardcoded in migrations. The bootstrap SQL is a deliberate one-time manual operator step and must be completed before accepting or reviewing shared blocklist reports in a deployed environment.
