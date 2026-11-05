@@ -211,7 +211,13 @@ class TransferVerificationRejected extends Error {
 }
 
 async function verifyOnChainTransfer(transactionHash: string, signerAccountId: string) {
-  if (base58Decode(transactionHash).length !== 32) {
+  let decodedTransactionHash: Uint8Array;
+  try {
+    decodedTransactionHash = base58Decode(transactionHash);
+  } catch {
+    throw new TransferVerificationRejected("Invalid NEAR transaction hash");
+  }
+  if (decodedTransactionHash.length !== 32) {
     throw new TransferVerificationRejected("Invalid NEAR transaction hash");
   }
   const result = await nearTestnetRpc({
