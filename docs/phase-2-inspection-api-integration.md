@@ -39,7 +39,8 @@ A WARN can reveal only the dedicated Agent Chat owner-review step for the exact 
 The fixed Testnet wallet flow supports a separate owner-signed acknowledgement for an eligible WARN result. It does not edit the risk evaluator's output:
 - The acknowledgement is tied to the owner, proposal ID, target, policy ID/version, registered signing wallet, and a stable risk-evidence fingerprint.
 - The owner signs the full warning context and bounded warning reasons in a NEP-413 message using a registered active Testnet wallet.
-- The review challenge expires after 3 minutes; a completed review expires after 5 minutes and is consumed once when a transfer challenge is created.
+- The review challenge expires after 5 minutes (the deployed database TTL and Edge Function response are aligned); a completed review expires after 5 minutes and is consumed once when a transfer challenge is created.
+- The exact wallet-signed review message is normalized to printable ASCII before challenge creation for Meteor Wallet compatibility. Dynamic warning reasons are sanitized, the final message is asserted ASCII-only, and the exact sanitized message is stored and verified without alteration.
 - The review row retains the verified wallet signature, signer account/public key, exact proposal and evidence fingerprint for audit.
 - A review does not approve the transaction. The existing transfer authorization signature and wallet's explicit transaction approval remain separate.
 - The risk engine continues to report WARN; it is never rewritten as ALLOW.
