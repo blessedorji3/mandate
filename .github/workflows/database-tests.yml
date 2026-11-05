@@ -41,6 +41,8 @@ jobs:
         run: deno test supabase/functions/near-transfer-authorization/recovery-meteor-diagnostic.test.ts
       - name: Run Edge Function HTTP authentication integration tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/near-transfer-authorization/http-integration.test.ts
+      - name: Run signed NEAR transfer authorization lifecycle integration tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/near-transfer-authorization/transfer-approval-lifecycle-integration.test.ts
       - name: Run proposal-bound counterparty review HTTP security tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/near-transfer-authorization/counterparty-risk-review-integration.test.ts
       - name: Run adversarial recovery HTTP integration tests
