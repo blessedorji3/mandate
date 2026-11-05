@@ -676,3 +676,63 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* Controlled Testnet counterparty review console */
+.blocklist-workspace{width:min(100%,980px);margin:0 auto;padding:0 0 36px}
+.blocklist-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:4px 0 22px;border-bottom:1px solid #29352d}
+.blocklist-back,.blocklist-footer a{color:#b8d99e;font:10px 'DM Mono',monospace;text-decoration:none}
+.blocklist-intro{padding:28px 0 20px}
+.blocklist-intro h1{font:700 clamp(28px,5vw,42px) Manrope,sans-serif;letter-spacing:-1.5px;margin:10px 0}
+.blocklist-intro h1 em{color:#b8ed8c;font-style:normal}
+.blocklist-intro>p{max-width:760px;color:#9aa69d;font-size:12px;line-height:1.7;margin:0}
+.blocklist-alert{display:grid;gap:5px;margin:12px 0;padding:13px 15px;border:1px solid;border-radius:8px;font-size:11px;line-height:1.6}
+.blocklist-alert strong{font:10px 'DM Mono',monospace;text-transform:uppercase;letter-spacing:.6px}
+.blocklist-alert.is-error{border-color:#704444;background:#251819;color:#f0b1b1}
+.blocklist-alert.is-success{border-color:#48613d;background:#142017;color:#c5ed9f}
+.blocklist-role-card{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 18px;border:1px solid #354238;border-radius:9px;background:#111813}
+.blocklist-role-card h2{margin:7px 0 5px;color:#e5ece6;font:600 15px Manrope,sans-serif}
+.blocklist-role-card p{margin:0;color:#9aa69d;font-size:10px;line-height:1.6}
+.blocklist-kicker{color:#a8c995;font:9px 'DM Mono',monospace;letter-spacing:.8px;text-transform:uppercase}
+.blocklist-role-pill,.blocklist-pending-pill,.blocklist-audit-count{flex:0 0 auto;padding:6px 9px;border:1px solid #3d5933;border-radius:999px;background:#172417;color:#b8ed8c;font:9px 'DM Mono',monospace;letter-spacing:.5px}
+.blocklist-role-pill.is-off{border-color:#604040;background:#211616;color:#eaa2a2}
+.blocklist-section{margin-top:18px;padding:19px;border:1px solid #29352d;border-radius:10px;background:#111513}
+.blocklist-section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:16px}
+.blocklist-section-heading h2{margin:7px 0 5px;color:#e5ece6;font:600 17px Manrope,sans-serif}
+.blocklist-section-heading p{margin:0;color:#89978d;font-size:10px;line-height:1.6;max-width:640px}
+.blocklist-empty{display:grid;gap:6px;padding:22px 14px;border:1px dashed #354238;border-radius:8px;text-align:center;color:#a0ada3;font-size:11px;line-height:1.6}
+.blocklist-empty strong{color:#dce8dc}
+.blocklist-report-list,.blocklist-audit-list{display:grid;gap:12px}
+.blocklist-report{padding:16px;border:1px solid #3b493e;border-radius:9px;background:#0e130f}
+.blocklist-report-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.blocklist-report-head h3{margin:6px 0;color:#e8f0e9;font:600 14px 'DM Mono',monospace;overflow-wrap:anywhere}
+.blocklist-report-reason{color:#c0cbc1;font-size:11px;line-height:1.65}
+.blocklist-report-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.blocklist-report-meta div{min-width:0}
+.blocklist-report-meta dt{color:#829087;font:9px 'DM Mono',monospace;text-transform:uppercase}
+.blocklist-report-meta dd{margin:4px 0 0;color:#d3ded5;font-size:10px;overflow-wrap:anywhere}
+.blocklist-report-meta code{font:10px 'DM Mono',monospace}
+.blocklist-evidence-link{display:inline-block;margin:3px 0 14px;color:#b8d99e;font:10px 'DM Mono',monospace;overflow-wrap:anywhere}
+.blocklist-field-label,.blocklist-form label{display:grid;gap:7px;color:#dce6dd;font:600 10px Manrope,sans-serif}
+.blocklist-report textarea,.blocklist-form textarea,.blocklist-form input,.blocklist-form select{width:100%;min-width:0;min-height:44px;padding:11px 12px;border:1px solid #354238;border-radius:7px;background:#090d0a;color:#edf2ee;font:11px 'DM Sans',sans-serif;outline:none}
+.blocklist-report textarea,.blocklist-form textarea{min-height:82px;resize:vertical}
+.blocklist-report textarea:focus,.blocklist-form textarea:focus,.blocklist-form input:focus,.blocklist-form select:focus{border-color:#9ddd62;box-shadow:0 0 0 3px #b8f36a20}
+.blocklist-review-actions{display:flex;gap:9px;margin-top:11px}
+.blocklist-confirm-button,.blocklist-reject-button{min-height:42px;padding:10px 14px;border:1px solid #48613d;border-radius:7px;background:#1b291b;color:#c5ed9f;font:600 10px 'DM Mono',monospace;cursor:pointer}
+.blocklist-reject-button{border-color:#633d3d;background:#211515;color:#f0a1a1}
+.blocklist-confirm-button:disabled,.blocklist-reject-button:disabled{opacity:.45;cursor:not-allowed}
+.blocklist-caution,.blocklist-footnote{margin:10px 0 0;color:#87938a;font-size:9px;line-height:1.6}
+.blocklist-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.blocklist-form>label:nth-child(2),.blocklist-form>label:nth-child(3),.blocklist-form>button{grid-column:1/-1}
+.blocklist-form button{justify-self:start}
+.blocklist-audit-count{border-color:#3b463e;background:#171e19;color:#b3c0b6}
+.blocklist-audit-event{padding:13px;border:1px solid #2c382f;border-radius:8px;background:#0d120e}
+.blocklist-audit-event>div{display:flex;justify-content:space-between;gap:10px}
+.blocklist-audit-event strong{color:#dce8dc;font:600 11px Manrope,sans-serif;text-transform:capitalize}
+.blocklist-audit-event small{color:#849187;font-size:9px;line-height:1.6;overflow-wrap:anywhere}
+.blocklist-audit-event p{color:#bdc9bf;font-size:10px;line-height:1.6}
+.blocklist-audit-event details{border-top:1px solid #29352d;padding-top:8px}
+.blocklist-audit-event summary{color:#b8d99e;font:9px 'DM Mono',monospace;cursor:pointer}
+.blocklist-audit-event pre{max-height:260px;overflow:auto;color:#a8c995;font:9px/1.5 'DM Mono',monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.blocklist-footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:24px;color:#77847b;font:9px 'DM Mono',monospace}
+@media(max-width:620px){.blocklist-topbar{align-items:flex-start}.blocklist-role-card{align-items:flex-start;flex-direction:column}.blocklist-section{padding:14px}.blocklist-section-heading{align-items:flex-start;flex-direction:column}.blocklist-report-meta,.blocklist-form{grid-template-columns:minmax(0,1fr)}.blocklist-form>label,.blocklist-form>button{grid-column:1}.blocklist-form button{width:100%}.blocklist-review-actions{flex-direction:column}.blocklist-review-actions button{width:100%}.blocklist-report-head{flex-direction:column}.blocklist-footer{flex-direction:column}}
