@@ -2,7 +2,7 @@ name: MANDATE database integration tests
 
 on:
   push:
-    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset]
+    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset, feat/phase-2-counterparty-risk]
   pull_request:
     branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset]
 
@@ -31,6 +31,8 @@ jobs:
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - name: Type-check risk-aware inspection and wallet authorization Edge Functions
+        run: deno check --node-modules-dir=auto supabase/functions/agent-inspect/index.ts supabase/functions/near-transfer-authorization/index.ts
       - name: Run recovery signature and challenge security tests
         run: deno test supabase/functions/near-transfer-authorization/recovery-security.test.ts
       - name: Run Meteor NEP-413 recovery reset diagnostic
