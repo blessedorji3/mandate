@@ -226,7 +226,10 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     assertEquals(challenged.body.expiresInSeconds, 300, "risk-review challenge lifetime must match the five-minute UI");
     assertEquals(typeof challenged.body.message, "string");
     assertEquals(
-      /^[\\x20-\\x7E\\r\\n]*$/.test(String(challenged.body.message)),
+      String(challenged.body.message).split("").every((character) => {
+        const code = character.charCodeAt(0);
+        return (code >= 0x20 && code <= 0x7e) || character === "\r" || character === "\n";
+      }),
       true,
       "the exact Meteor NEP-413 risk-review challenge must be ASCII-only, including sanitized external warning reasons",
     );
