@@ -187,6 +187,13 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     };
     const { handleRequest } = await import("./index.ts");
 
+    // Exercise the same authenticated inspection action used by the Next.js API.
+    // Its evidence fingerprint must match the later signed-review challenge.
+    const sharedInspection = await responseFor("counterparty_inspect", { proposal });
+    assertEquals(sharedInspection.response.status, 200, JSON.stringify(sharedInspection.body));
+    assertEquals(sharedInspection.body.riskFingerprint, fingerprint);
+    assertEquals(sharedInspection.body.risk.outcome, initial.decision.outcome);
+
     // The test fetch is swapped to serve the correctly fingerprinted inspection.
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
