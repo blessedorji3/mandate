@@ -87,7 +87,13 @@ export async function POST(request: Request) {
     const { data: riskData, error: riskError } = await supabase.functions.invoke(
       "near-transfer-authorization",
       {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        // This is a server-to-server call, so Node does not automatically
+        // forward the browser Origin. Supply the canonical, allowlisted MANDATE
+        // preview origin; the Edge Function still verifies the user's JWT.
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          Origin: "https://mandate-git-feat-phase-2-counterparty-risk-web3pass.vercel.app",
+        },
         body: {
           action: "counterparty_inspect",
           proposal: {
