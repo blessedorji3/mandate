@@ -9,7 +9,7 @@ function response(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 }
 
-function mockFetch(options: { network?: string; codeHash?: string; wrongId?: boolean } = {}) {
+function mockFetch(options: { network?: string; codeHash?: string; wrongId?: boolean; globalContractHash?: string | null; globalContractAccountId?: string | null } = {}) {
   const methods: string[] = [];
   const fetchImpl = async (_url: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body));
@@ -23,6 +23,8 @@ function mockFetch(options: { network?: string; codeHash?: string; wrongId?: boo
       locked: "0",
       storage_usage: 128,
       code_hash: options.codeHash ?? emptyHash,
+      ...(options.globalContractHash !== undefined ? { global_contract_hash: options.globalContractHash } : {}),
+      ...(options.globalContractAccountId !== undefined ? { global_contract_account_id: options.globalContractAccountId } : {}),
     } });
   };
   return { fetchImpl: fetchImpl as typeof fetch, methods };
@@ -47,6 +49,46 @@ describe("collectNearTestnetEvidence", () => {
     expect(result.contractCodeHash).toBe(validHash);
     expect(result.signals.map((signal) => signal.name)).toContain("contract_code_history");
     expect(result.signals.find((signal) => signal.name === "contract_code_history")?.status).toBe("unavailable");
+  });
+  it("classifies a global-contract hash reference as a contract when local code_hash is empty", async () => {
+    const { fetchImpl } = mockFetch({ globalContractHash: validHash });
+    const result = await collectNearTestnetEvidence("global-hash.testnet", fetchImpl, () => new Date(at));
+    expect(result.status).toBe("PARTIAL");
+    expect(result.isContract).toBe(true);
+    expect(result.contractCodeHash).toBe(validHash);
+    expect(result.signals.find((signal) => signal.name === "account_type")?.value).toBe("contract");
+    expect(result.signals.find((signal) => signal.name === "global_contract_reference")).toMatchObject({
+      status: "verified",
+      value: "global_contract_hash:" + validHash,
+    });
+    expect(result.signals.find((signal) => signal.name === "contract_code_history")?.status).toBe("unavailable");
+  });
+
+  it("classifies a global-contract account-id reference as a contract without inventing a code hash", async () => {
+    const { fetchImpl } = mockFetch({ globalContractAccountId: "shared-code.testnet" });
+    const result = await collectNearTestnetEvidence("global-account.testnet", fetchImpl, () => new Date(at));
+    expect(result.status).toBe("PARTIAL");
+    expect(result.isContract).toBe(true);
+    expect(result.contractCodeHash).toBeNull();
+    expect(result.signals.find((signal) => signal.name === "account_type")?.value).toBe("contract");
+    expect(result.signals.find((signal) => signal.name === "global_contract_reference")).toMatchObject({
+      status: "verified",
+      value: "global_contract_account_id:shared-code.testnet",
+    });
+    expect(result.signals.find((signal) => signal.name === "contract_code_hash")?.status).toBe("unavailable");
+    expect(result.signals.find((signal) => signal.name === "contract_code_history")?.status).toBe("unavailable");
+  });
+
+  it("fails closed for malformed or contradictory global-contract references", async () => {
+    const badHash = await collectNearTestnetEvidence("global-bad.testnet",
+      mockFetch({ globalContractHash: "bad-hash" }).fetchImpl, () => new Date(at));
+    const badOwner = await collectNearTestnetEvidence("global-bad.testnet",
+      mockFetch({ globalContractAccountId: "bad..account" }).fetchImpl, () => new Date(at));
+    const conflicting = await collectNearTestnetEvidence("global-bad.testnet",
+      mockFetch({ codeHash: validHash, globalContractHash: validHash }).fetchImpl, () => new Date(at));
+    expect(badHash.status).toBe("UNAVAILABLE");
+    expect(badOwner.status).toBe("UNAVAILABLE");
+    expect(conflicting.status).toBe("UNAVAILABLE");
   });
 
   it("fails closed when the RPC does not confirm Testnet", async () => {

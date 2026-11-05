@@ -3,7 +3,7 @@ export type EvidenceStatus = "verified" | "unavailable" | "stale" | "unverified"
 export type RiskSignalName =
   | "account_age" | "recent_activity" | "first_observed_activity"
   | "account_type" | "previous_mandate_interactions" | "shared_blocklist_lookup"
-  | "contract_code_hash" | "contract_code_history";
+  | "contract_code_hash" | "contract_code_history" | "global_contract_reference";
 
 export type RiskSignal = {
   name: RiskSignalName;
@@ -56,7 +56,7 @@ const REQUIRED_SIGNALS: RiskSignalName[] = [
   "previous_mandate_interactions", "shared_blocklist_lookup",
 ];
 const SIGNAL_NAMES = new Set<RiskSignalName>([
-  ...REQUIRED_SIGNALS, "first_observed_activity", "contract_code_hash", "contract_code_history",
+  ...REQUIRED_SIGNALS, "first_observed_activity", "contract_code_hash", "contract_code_history", "global_contract_reference",
 ]);
 const EXPECTED_SOURCES: Record<RiskSignalName, string> = {
   account_age: "FastNear Testnet indexed transaction details",
@@ -67,6 +67,7 @@ const EXPECTED_SOURCES: Record<RiskSignalName, string> = {
   shared_blocklist_lookup: "MANDATE reviewed blocklist",
   contract_code_hash: "NEAR Testnet RPC view_account",
   contract_code_history: "NEAR Testnet historical state",
+  global_contract_reference: "NEAR Testnet RPC view_account",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,6 +105,18 @@ function validSignal(value: unknown): value is RiskSignal {
       !["string", "number", "boolean"].includes(typeof value.value)) return false;
   if (typeof value.value === "number" && !Number.isFinite(value.value)) return false;
   if (typeof value.value === "string" && value.value.length > MAX_TEXT) return false;
+  if (value.name === "global_contract_reference" && value.status === "verified") {
+    if (typeof value.value !== "string") return false;
+    const hashPrefix = "global_contract_hash:";
+    const accountPrefix = "global_contract_account_id:";
+    if (value.value.startsWith(hashPrefix)) {
+      if (!isBase58Hash32(value.value.slice(hashPrefix.length))) return false;
+    } else if (value.value.startsWith(accountPrefix)) {
+      if (!ACCOUNT_ID.test(value.value.slice(accountPrefix.length))) return false;
+    } else {
+      return false;
+    }
+  }
   return true;
 }
 function validTimestamp(value: unknown): value is string {
@@ -259,7 +272,8 @@ export function evaluateCounterpartyRisk(
       warn("Historical contract code changes could not be verified.");
     } else if (data.codeChangedRecently) warn("Contract code changed recently; review deployed code before proceeding.");
   } else if (data.isContract === false &&
-      (signalByName(signals, "contract_code_hash") || signalByName(signals, "contract_code_history"))) {
+      (signalByName(signals, "contract_code_hash") || signalByName(signals, "contract_code_history") ||
+        signalByName(signals, "global_contract_reference"))) {
     warn("Contract evidence conflicts with the verified non-contract account type.");
   }
 

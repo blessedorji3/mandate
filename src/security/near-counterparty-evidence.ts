@@ -1,5 +1,5 @@
 export type NearEvidenceSignal = {
-  name: "account_type" | "contract_code_hash" | "contract_code_history";
+  name: "account_type" | "contract_code_hash" | "contract_code_history" | "global_contract_reference";
   status: "verified" | "unavailable" | "stale" | "unverified";
   observedAt: string;
   source: string;
@@ -150,17 +150,39 @@ export async function collectNearTestnetEvidence(
 
     const state = account.result;
     const codeHash = state.code_hash;
+    const hasGlobalContractHash = state.global_contract_hash !== undefined && state.global_contract_hash !== null;
+    const hasGlobalContractAccountId = state.global_contract_account_id !== undefined &&
+      state.global_contract_account_id !== null;
+    const globalContractHash = hasGlobalContractHash ? state.global_contract_hash : null;
+    const globalContractAccountId = hasGlobalContractAccountId ? state.global_contract_account_id : null;
+
+    // A global reference is a contract even when local code_hash is the empty
+    // sentinel. A malformed or contradictory reference must never be treated
+    // as an ordinary account.
     if (
       !isBase58Hash32(codeHash) ||
       !nonNegativeIntegerString(state.amount) ||
       !nonNegativeIntegerString(state.locked) ||
       !Number.isSafeInteger(state.storage_usage) ||
-      Number(state.storage_usage) < 0
+      Number(state.storage_usage) < 0 ||
+      (hasGlobalContractHash && hasGlobalContractAccountId) ||
+      (hasGlobalContractHash && !isBase58Hash32(globalContractHash)) ||
+      (hasGlobalContractAccountId && !validAccountId(globalContractAccountId)) ||
+      ((hasGlobalContractHash || hasGlobalContractAccountId) && codeHash !== NO_CONTRACT_CODE_HASH)
     ) {
-      return unavailable(accountId, evaluatedAt, "NEAR RPC returned malformed account state.");
+      return unavailable(accountId, evaluatedAt, "NEAR RPC returned malformed or contradictory account/contract state.");
     }
 
-    const isContract = codeHash !== NO_CONTRACT_CODE_HASH;
+    const hasGlobalContract = hasGlobalContractHash || hasGlobalContractAccountId;
+    const isContract = codeHash !== NO_CONTRACT_CODE_HASH || hasGlobalContract;
+    const effectiveContractCodeHash = hasGlobalContractHash
+      ? globalContractHash as string
+      : codeHash !== NO_CONTRACT_CODE_HASH ? codeHash : null;
+    const globalContractReference = hasGlobalContractHash
+      ? "global_contract_hash:" + String(globalContractHash)
+      : hasGlobalContractAccountId
+        ? "global_contract_account_id:" + String(globalContractAccountId)
+        : null;
     const syncInfo = status.result?.sync_info;
     const blockHeight = isRecord(syncInfo) && Number.isSafeInteger(syncInfo.latest_block_height) &&
       Number(syncInfo.latest_block_height) >= 0
@@ -177,23 +199,45 @@ export async function collectNearTestnetEvidence(
     }];
 
     if (isContract) {
-      signals.push(
-        {
+      if (effectiveContractCodeHash) {
+        signals.push({
           name: "contract_code_hash",
           status: "verified",
           observedAt: evaluatedAt,
           source: "NEAR Testnet RPC view_account",
-          summary: "Current finalized contract code hash was retrieved.",
-          value: codeHash,
-        },
-        {
-          name: "contract_code_history",
+          summary: hasGlobalContractHash
+            ? "The finalized account references this global contract code hash."
+            : "Current finalized local contract code hash was retrieved.",
+          value: effectiveContractCodeHash,
+        });
+      } else {
+        signals.push({
+          name: "contract_code_hash",
           status: "unavailable",
           observedAt: evaluatedAt,
-          source: "NEAR Testnet historical state",
-          summary: "Historical contract code changes are not collected by this current-state RPC reader.",
-        },
-      );
+          source: "NEAR Testnet RPC view_account",
+          summary: "The account references a global contract by owner account ID; this response does not prove the referenced code hash.",
+        });
+      }
+
+      if (globalContractReference) {
+        signals.push({
+          name: "global_contract_reference",
+          status: "verified",
+          observedAt: evaluatedAt,
+          source: "NEAR Testnet RPC view_account",
+          summary: "The finalized account state contains a global-contract reference.",
+          value: globalContractReference,
+        });
+      }
+
+      signals.push({
+        name: "contract_code_history",
+        status: "unavailable",
+        observedAt: evaluatedAt,
+        source: "NEAR Testnet historical state",
+        summary: "Historical contract code changes are not collected by this current-state RPC reader.",
+      });
     }
 
     return {
@@ -203,7 +247,7 @@ export async function collectNearTestnetEvidence(
       evaluatedAt,
       currentBlockHeight: blockHeight,
       isContract,
-      contractCodeHash: isContract ? codeHash : null,
+      contractCodeHash: isContract ? effectiveContractCodeHash : null,
       codeChangedRecently: null,
       signals,
     };
