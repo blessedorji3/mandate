@@ -8,6 +8,7 @@ import { evaluateCounterpartyRisk } from "@/security/counterparty-risk";
 import { combinePolicyAndCounterpartyRisk } from "@/security/inspection-risk";
 import { createSupabaseRiskDependencies } from "@/security/supabase-risk-dependencies";
 import { fingerprintCounterpartyRisk } from "@/security/counterparty-risk-review";
+import { readBoundedRequestText, RequestBodyTooLargeError } from "@/security/read-bounded-request-body";
 
 export const runtime = "nodejs";
 const jsonHeaders = { "Cache-Control": "no-store" };
@@ -24,12 +25,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Sign in before inspecting an action." }, { status: 401, headers: jsonHeaders });
     }
 
-    const contentLength = Number(request.headers.get("content-length") ?? "0");
-    if (Number.isFinite(contentLength) && contentLength > 16_384) {
-      return NextResponse.json({ error: "Request is too large." }, { status: 413, headers: jsonHeaders });
+    let rawBody: string;
+    try {
+      rawBody = await readBoundedRequestText(request, 16_384);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        return NextResponse.json({ error: "Request is too large." }, { status: 413, headers: jsonHeaders });
+      }
+      return NextResponse.json({ error: "Request body must be valid UTF-8." }, { status: 400, headers: jsonHeaders });
     }
-
-    const body: unknown = await request.json();
+    let body: unknown;
+    try {
+      body = JSON.parse(rawBody) as unknown;
+    } catch {
+      return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400, headers: jsonHeaders });
+    }
     if (!isRecord(body) || !("proposal" in body)) {
       return NextResponse.json({ error: "Expected a proposal object." }, { status: 400, headers: jsonHeaders });
     }
