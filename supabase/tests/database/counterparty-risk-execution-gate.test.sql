@@ -44,8 +44,8 @@ select throws_ok(
     'risk-warn-proposal', repeat('b',64)
   )$$,
   'P0001',
-  'Proposal counterparty risk is not ALLOW',
-  'database refuses a challenge for a WARN proposal'
+  'A current signed owner risk review is required',
+  'database refuses a challenge for a WARN proposal without a signed owner review'
 );
 
 select is(

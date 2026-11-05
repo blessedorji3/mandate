@@ -12,8 +12,10 @@ type DatabaseBlocklistRow = {
 export type CounterpartyRiskServiceDependencies = {
   /** This dependency must query the shared list for this exact network + account ID. */
   findBlocklistRecord: (network: "testnet", accountId: string) => Promise<unknown | null>;
-  /** Must filter authorization_decisions by both ownerId and targetAccountId. */
-  countPreviousInteractions: (ownerId: string, network: "testnet", targetAccountId: string) => Promise<number>;
+  /** Must filter by owner + target and exclude the proposal currently being evaluated. */
+  countPreviousInteractions: (ownerId: string, network: "testnet", targetAccountId: string, excludeProposalId?: string) => Promise<number>;
+  /** Exclude the current receipt so an inspection does not count itself as prior activity. */
+  excludeProposalId?: string;
   collectRisk?: (
     accountId: string,
     options: {
@@ -82,7 +84,7 @@ export async function assessCounterpartyRisk(
 
   const [blocklistResult, interactionResult] = await Promise.allSettled([
     dependencies.findBlocklistRecord("testnet", targetAccountId),
-    dependencies.countPreviousInteractions(ownerId, "testnet", targetAccountId),
+    dependencies.countPreviousInteractions(ownerId, "testnet", targetAccountId, dependencies.excludeProposalId),
   ]);
 
   const normalized = blocklistResult.status === "fulfilled"

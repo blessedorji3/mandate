@@ -24,6 +24,7 @@ type Message = {
   text: string;
   decision?: Decision;
   risk?: Risk;
+  riskReviewRequired?: boolean;
   walletProposalId?: string;
 };
 
@@ -84,11 +85,13 @@ export function AgentChat() {
       const risk = data.risk as Risk | undefined;
       const isExactWalletTest = parsed.amountAtomic === "1000000000000000000000" &&
         parsed.target === "confirmwithmandate.testnet";
-      // A risk WARN is not ordinary policy approval and must never reveal the wallet panel.
-      const canShowWalletApproval = isExactWalletTest && risk?.outcome === "ALLOW" &&
+      // WARN may open only the separate signed risk-review step. It is not transaction approval.
+      const riskReviewRequired = risk?.outcome === "WARN";
+      const canShowWalletApproval = isExactWalletTest &&
+        (risk?.outcome === "ALLOW" || riskReviewRequired) &&
         (decision.outcome === "ALLOW" || decision.outcome === "REQUIRE_APPROVAL");
-      const explanation = risk?.outcome === "WARN"
-        ? "Counterparty risk checks returned WARN. The proposal is paused for review; wallet approval is unavailable. No funds were moved."
+      const explanation = riskReviewRequired
+        ? "Counterparty risk checks returned WARN. You can review and sign an acknowledgement for this exact proposal; transaction approval remains separate."
         : risk?.outcome === "BLOCK"
           ? "Counterparty risk checks blocked this destination. No execution was attempted."
           : decision.outcome === "ALLOW"
@@ -107,6 +110,7 @@ export function AgentChat() {
         text: `I checked a transfer of ${parsed.amount} NEAR to ${parsed.target}. ${explanation}`,
         decision,
         ...(risk ? { risk } : {}),
+        ...(riskReviewRequired && canShowWalletApproval ? { riskReviewRequired: true } : {}),
         ...(canShowWalletApproval ? { walletProposalId: decision.proposalId } : {})
       }]);
     } catch (error) {
@@ -151,13 +155,16 @@ export function AgentChat() {
                 <div className={`agent-decision ${message.risk.outcome.toLowerCase()}`}>
                   <strong>COUNTERPARTY RISK · {message.risk.outcome}</strong>
                   {message.risk.reasons.map((reason, index) => <span key={index}>{reason}</span>)}
-                  {message.risk.outcome === "WARN" && <small>Owner review is required. Wallet approval remains disabled.</small>}
+                  {message.risk.outcome === "WARN" && <small>A signed, proposal-bound acknowledgement is required before the separate transaction approval step.</small>}
                 </div>
               )}
               {message.walletProposalId && (
                 <div className="agent-wallet-approval">
                   <p>Exact supported test transaction: 0.001 NEAR to confirmwithmandate.testnet (NEAR Testnet).</p>
-                  <NearWalletPanel proposalId={message.walletProposalId} />
+                  <NearWalletPanel
+                    proposalId={message.walletProposalId}
+                    riskReviewRequired={message.riskReviewRequired === true}
+                  />
                 </div>
               )}
             </div>

@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
 import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
+import { fingerprintCounterpartyRisk } from "../../../src/security/counterparty-risk-review.ts";
 import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413, verifyNep413WithOptionalCallback } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
@@ -255,6 +256,7 @@ function proposalId() {
 async function assessCurrentCounterpartyRisk(
   admin: ReturnType<typeof createClient>,
   ownerId: string,
+  excludeProposalId?: string,
 ) {
   return assessCounterpartyRisk(ownerId, TEST_TRANSFER.receiverId, {
     findBlocklistRecord: async (network, accountId) => {
@@ -265,11 +267,14 @@ async function assessCurrentCounterpartyRisk(
       if (lookup.error) throw new Error("Counterparty blocklist lookup is unavailable.");
       return Array.isArray(lookup.data) ? lookup.data[0] ?? null : lookup.data ?? null;
     },
-    countPreviousInteractions: async (authenticatedOwnerId, _network, accountId) => {
-      const result = await admin.from("authorization_decisions")
+    excludeProposalId,
+    countPreviousInteractions: async (authenticatedOwnerId, _network, accountId, excludeId) => {
+      let resultQuery = admin.from("authorization_decisions")
         .select("id", { count: "exact", head: true })
         .eq("owner_id", authenticatedOwnerId)
         .filter("proposal->>target", "eq", accountId);
+      if (excludeId) resultQuery = resultQuery.neq("proposal_id", excludeId);
+      const result = await resultQuery;
       if (result.error || result.count === null) {
         throw new Error("Owner-scoped counterparty history is unavailable.");
       }
@@ -923,6 +928,201 @@ export async function handleRequest(req: Request) {
       return reply({ registered: true, accountId: challenge.account_id, publicKey: signedMessage.publicKey });
     }
 
+
+    if (body.action === "risk_review_challenge") {
+      const proposalIdValue = body.proposalId;
+      const signerAccountId = body.signerAccountId;
+      if (typeof proposalIdValue !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(proposalIdValue) ||
+          typeof signerAccountId !== "string" || !/^[a-z0-9._-]{2,64}\\.testnet$/.test(signerAccountId)) {
+        return reply({ error: "A valid inspected proposal and registered Testnet wallet are required." }, 400);
+      }
+
+      const { data: signerRows, error: signerError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: signerAccountId,
+      });
+      const signerWallet = Array.isArray(signerRows) ? signerRows[0] : null;
+      if (signerError || !signerWallet?.public_key) {
+        return reply({ error: "Register and verify this wallet before signing a counterparty risk review." }, 403);
+      }
+      const policy = await getPolicy(admin, user.id);
+      if (!policy) return reply({ error: "An active security policy is required." }, 409);
+      const { data: inspected, error: inspectedError } = await admin.from("authorization_decisions")
+        .select("proposal_id, policy_id, policy_version, outcome, proposal")
+        .eq("owner_id", user.id).eq("proposal_id", proposalIdValue).maybeSingle();
+      if (inspectedError || !inspected || inspected.policy_id !== policy.id ||
+          inspected.policy_version !== policy.version || inspected.outcome !== "REQUIRE_APPROVAL" ||
+          !isRecord(inspected.proposal) || !isRecord(inspected.proposal.counterpartyRisk) ||
+          inspected.proposal.counterpartyRisk.outcome !== "WARN" ||
+          inspected.proposal.id !== inspected.proposal_id ||
+          inspected.proposal.actionType !== "transfer" ||
+          inspected.proposal.asset !== "NEAR" ||
+          inspected.proposal.amountAtomic !== TEST_TRANSFER.amountAtomic ||
+          inspected.proposal.target !== TEST_TRANSFER.receiverId ||
+          inspected.proposal.network !== TEST_TRANSFER.network ||
+          typeof inspected.proposal.counterpartyRiskFingerprint !== "string" ||
+          !/^[0-9a-f]{64}$/.test(inspected.proposal.counterpartyRiskFingerprint)) {
+        return reply({ error: "Only an exact, currently recorded WARN proposal can be reviewed." }, 409);
+      }
+
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, proposalIdValue);
+      if (currentRisk.decision.outcome !== "WARN") {
+        return reply({
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is BLOCK. BLOCK cannot be overridden by owner review."
+            : "The risk state changed. Inspect the proposal again before reviewing it.",
+          risk: currentRisk.decision,
+        }, 409);
+      }
+      const fingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposal: inspected.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (fingerprint !== inspected.proposal.counterpartyRiskFingerprint) {
+        return reply({ error: "Counterparty evidence changed since inspection. Inspect again; this review challenge was not created." }, 409);
+      }
+
+      const challengeId = crypto.randomUUID();
+      const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const warningReasons = Array.isArray(inspected.proposal.counterpartyRisk.reasons)
+        ? inspected.proposal.counterpartyRisk.reasons
+            .filter((reason: unknown): reason is string => typeof reason === "string")
+            .slice(0, 4)
+            .map((reason: string) => reason.slice(0, 150))
+        : ["Counterparty evidence requires owner review."];
+      const message = [
+        "MANDATE COUNTERPARTY RISK REVIEW",
+        "I acknowledge the counterparty risk warning for this exact proposal. This is not transaction approval and does not move funds.",
+        "Network: NEAR Testnet",
+        `Owner: ${user.id}`,
+        `Proposal: ${inspected.proposal_id}`,
+        `Counterparty: ${TEST_TRANSFER.receiverId}`,
+        `Policy: ${policy.id} version ${policy.version}`,
+        `Risk evidence fingerprint: ${fingerprint}`,
+        "Decision: WARN — owner review required",
+        `Warning reasons: ${warningReasons.join(" | ")}`,
+        "Owner acknowledgement: I have read these reasons and accept this counterparty risk for this proposal only.",
+        `Signer wallet: ${signerAccountId}`,
+        `Challenge: ${challengeId}`,
+        `Nonce: ${nonceHex}`,
+      ].join("\\n");
+      const { error: createError } = await admin.rpc("create_counterparty_risk_review_challenge_v1", {
+        p_owner_id: user.id,
+        p_id: challengeId,
+        p_proposal_id: inspected.proposal_id,
+        p_policy_id: policy.id,
+        p_policy_version: policy.version,
+        p_target_account_id: TEST_TRANSFER.receiverId,
+        p_risk_fingerprint: fingerprint,
+        p_signer_account_id: signerAccountId,
+        p_signer_public_key: signerWallet.public_key,
+        p_nonce_hex: nonceHex,
+        p_message: message,
+      });
+      if (createError) return reply({ error: "Could not create a safe, proposal-bound review challenge." }, 409);
+      return reply({
+        challengeId, message, nonceHex, recipient: APP_RECIPIENT,
+        signerAccountId, riskFingerprint: fingerprint, expiresInSeconds: 180,
+      });
+    }
+
+    if (body.action === "risk_review_verify") {
+      const challengeId = body.challengeId;
+      const signed = body.signedMessage;
+      if (typeof challengeId !== "string" || !isRecord(signed) ||
+          typeof signed.accountId !== "string" || typeof signed.publicKey !== "string" ||
+          typeof signed.signature !== "string") {
+        return reply({ error: "A valid NEP-413 owner risk-review signature is required." }, 400);
+      }
+      const { data: challengeRows, error: challengeError } = await admin.rpc(
+        "get_counterparty_risk_review_challenge_v1",
+        { p_owner_id: user.id, p_id: challengeId },
+      );
+      const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
+      if (challengeError || !challenge) return reply({ error: "Risk-review challenge expired, missing, or already used." }, 409);
+      if (signed.accountId !== challenge.signer_account_id ||
+          signed.publicKey !== challenge.signer_public_key) {
+        return reply({ error: "The signed wallet does not match the wallet bound to this review challenge." }, 403);
+      }
+
+      const { data: walletRows, error: walletError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: signed.accountId,
+      });
+      const registeredWallet = Array.isArray(walletRows) ? walletRows[0] : null;
+      if (walletError || !registeredWallet || registeredWallet.public_key !== signed.publicKey) {
+        return reply({ error: "This signing key is not an active verified wallet on this MANDATE account." }, 403);
+      }
+      const accessKeys = await rpcViewAccessKeys(signed.accountId);
+      if (!findActiveFullAccessKey(accessKeys, signed.publicKey)) {
+        return reply({ error: "The reviewing wallet key is no longer an active FullAccess key." }, 403);
+      }
+      const signatureValid = await verifyNep413(
+        challenge.message, fromHex(challenge.nonce_hex), APP_RECIPIENT,
+        signed.publicKey, signed.signature,
+      );
+      if (!signatureValid) return reply({ error: "NEP-413 counterparty review signature verification failed." }, 403);
+
+      const policy = await getPolicy(admin, user.id);
+      if (!policy || policy.id !== challenge.policy_id || policy.version !== challenge.policy_version) {
+        return reply({ error: "The active policy changed. Inspect and review the proposal again." }, 409);
+      }
+      const { data: inspected, error: inspectedError } = await admin.from("authorization_decisions")
+        .select("proposal_id, policy_id, policy_version, outcome, proposal")
+        .eq("owner_id", user.id).eq("proposal_id", challenge.proposal_id).maybeSingle();
+      if (inspectedError || !inspected || inspected.outcome !== "REQUIRE_APPROVAL" ||
+          inspected.policy_id !== policy.id || inspected.policy_version !== policy.version ||
+          !isRecord(inspected.proposal) || !isRecord(inspected.proposal.counterpartyRisk) ||
+          inspected.proposal.counterpartyRisk.outcome !== "WARN" ||
+          inspected.proposal.counterpartyRiskFingerprint !== challenge.risk_fingerprint) {
+        return reply({ error: "The proposal or risk record changed. The owner review cannot be completed." }, 409);
+      }
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, challenge.proposal_id);
+      if (currentRisk.decision.outcome !== "WARN") {
+        return reply({
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is now BLOCK. BLOCK cannot be overridden by owner review."
+            : "The risk state changed. Inspect the proposal again before continuing.",
+          risk: currentRisk.decision,
+        }, 409);
+      }
+      const fingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposal: inspected.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (fingerprint !== challenge.risk_fingerprint) {
+        return reply({ error: "Counterparty evidence changed. The review is stale and cannot be accepted." }, 409);
+      }
+      const { data: reviewId, error: completeError } = await admin.rpc("complete_counterparty_risk_review_v1", {
+        p_owner_id: user.id,
+        p_id: challenge.id,
+        p_wallet_signature: signed.signature,
+      });
+      if (completeError || typeof reviewId !== "string") {
+        return reply({ error: "The signed review could not be recorded. No action is authorized." }, 409);
+      }
+      return reply({
+        reviewed: true,
+        reviewId,
+        proposalId: challenge.proposal_id,
+        riskFingerprint: challenge.risk_fingerprint,
+        expiresInSeconds: 300,
+        message: "Owner risk acknowledgement recorded for this proposal only. Transaction approval is still required separately.",
+      });
+    }
+
     if (body.action === "challenge") {
       const signer = body.signerAccountId;
       if (typeof signer !== "string" || !/^[a-z0-9._-]+\.testnet$/.test(signer)) {
@@ -948,13 +1148,17 @@ export async function handleRequest(req: Request) {
       const policy = await getPolicy(admin, user.id);
       if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
       const evaluated = evaluateTestTransferPolicy(policy);
-      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id);
-      if (currentRisk.decision.outcome !== "ALLOW") {
+      const requestedProposalId = typeof body.proposalId === "string" ? body.proposalId : undefined;
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, requestedProposalId);
+      if (currentRisk.decision.outcome === "BLOCK") {
         return reply({
-          error: "Current counterparty risk checks did not return ALLOW. No wallet challenge was created.",
+          error: "Counterparty risk is BLOCK. BLOCK cannot be overridden by owner review.",
           risk: currentRisk.decision,
           riskCollection: currentRisk.collection,
         }, 403);
+      }
+      if (currentRisk.decision.outcome === "WARN" && typeof body.proposalId !== "string") {
+        return reply({ error: "Inspect this proposal and complete its proposal-bound owner risk review before requesting a wallet challenge.", risk: currentRisk.decision }, 409);
       }
       let decision: Record<string, unknown>;
       if (body.proposalId !== undefined && typeof body.proposalId !== "string") {
@@ -975,7 +1179,7 @@ export async function handleRequest(req: Request) {
             !["ALLOW", "REQUIRE_APPROVAL"].includes(inspected.outcome) ||
             !isRecord(inspected.proposal) ||
             !isRecord(inspected.proposal.counterpartyRisk) ||
-            inspected.proposal.counterpartyRisk.outcome !== "ALLOW" ||
+            !["ALLOW", "WARN"].includes(String(inspected.proposal.counterpartyRisk.outcome)) ||
             inspected.proposal.id !== inspected.proposal_id ||
             inspected.proposal.actionType !== "transfer" ||
             inspected.proposal.asset !== "NEAR" ||
@@ -984,10 +1188,37 @@ export async function handleRequest(req: Request) {
             inspected.proposal.network !== TEST_TRANSFER.network) {
           return reply({ error: "This proposal is not eligible for the fixed MANDATE Testnet transfer flow. Inspect it again or use the exact supported test transfer." }, 409);
         }
-        if (inspected.outcome !== evaluated.outcome) {
+        const currentFingerprint = await fingerprintCounterpartyRisk({
+          ownerId: user.id,
+          policyId: policy.id,
+          policyVersion: policy.version,
+          proposal: inspected.proposal as {
+            id: string; agentId?: string; actionType: string; asset: string;
+            amountAtomic: string; target: string; network: string;
+            protocol?: string; approvalAmountAtomic?: string;
+          },
+          risk: currentRisk.decision,
+        });
+        if (currentFingerprint !== inspected.proposal.counterpartyRiskFingerprint ||
+            currentRisk.decision.outcome !== inspected.proposal.counterpartyRisk.outcome) {
+          return reply({ error: "The counterparty risk evidence changed since inspection. Inspect the proposal again.", risk: currentRisk.decision }, 409);
+        }
+        const expectedDecisionOutcome = currentRisk.decision.outcome === "WARN"
+          ? "REQUIRE_APPROVAL" : evaluated.outcome;
+        if (inspected.outcome !== expectedDecisionOutcome) {
           return reply({ error: "The current policy decision differs from the inspected proposal. Inspect again." }, 409);
         }
-        decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: inspected.proposal_id };
+        decision = currentRisk.decision.outcome === "WARN"
+          ? {
+              ...evaluated,
+              outcome: "REQUIRE_APPROVAL",
+              reason: "COUNTERPARTY_RISK_REVIEW_REQUIRED",
+              message: "A signed, proposal-bound owner risk acknowledgement is required. This is not transaction approval.",
+              policyId: policy.id,
+              policyVersion: policy.version,
+              proposalId: inspected.proposal_id,
+            }
+          : { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: inspected.proposal_id };
       } else {
         decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: proposalId() };
         const proposal = {
@@ -996,6 +1227,16 @@ export async function handleRequest(req: Request) {
           amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
           network: TEST_TRANSFER.network,
           counterpartyRisk: currentRisk.decision,
+          counterpartyRiskFingerprint: await fingerprintCounterpartyRisk({
+            ownerId: user.id, policyId: policy.id, policyVersion: policy.version,
+            proposal: {
+              id: String(decision.proposalId), agentId: "mandate-wallet-panel",
+              actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
+              amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
+              network: TEST_TRANSFER.network,
+            },
+            risk: currentRisk.decision,
+          }),
           riskCollection: currentRisk.collection,
         };
         const { error: decisionError } = await admin.from("authorization_decisions").insert({
@@ -1079,12 +1320,35 @@ export async function handleRequest(req: Request) {
           evaluateTestTransferPolicy(policy).outcome === "BLOCK") {
         return reply({ error: "The active policy changed or no longer permits this transfer. Start again." }, 409);
       }
-      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id);
-      if (currentRisk.decision.outcome !== "ALLOW") {
+      const { data: inspectedRows, error: inspectedError } = await admin.from("authorization_decisions")
+        .select("proposal_id, policy_id, policy_version, proposal")
+        .eq("owner_id", user.id).eq("proposal_id", challenge.proposal_id).maybeSingle();
+      const inspected = inspectedRows;
+      if (inspectedError || !inspected || !isRecord(inspected.proposal) ||
+          !isRecord(inspected.proposal.counterpartyRisk)) {
+        return reply({ error: "The original risk decision could not be reloaded. No authorization receipt was issued." }, 409);
+      }
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, challenge.proposal_id);
+      if (currentRisk.decision.outcome === "BLOCK" ||
+          currentRisk.decision.outcome !== inspected.proposal.counterpartyRisk.outcome) {
         return reply({
-          error: "Current counterparty risk checks no longer return ALLOW. No authorization receipt was issued.",
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is now BLOCK. No authorization receipt was issued."
+            : "Counterparty risk changed since challenge creation. Inspect and review again.",
           risk: currentRisk.decision,
         }, 409);
+      }
+      const currentFingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id, policyId: policy.id, policyVersion: policy.version,
+        proposal: inspected.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (currentFingerprint !== inspected.proposal.counterpartyRiskFingerprint) {
+        return reply({ error: "Counterparty evidence changed. The review is stale; inspect and review again." }, 409);
       }
       const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
       const token = hex(tokenBytes);
@@ -1111,14 +1375,39 @@ export async function handleRequest(req: Request) {
           typeof signerAccountId !== "string") return reply({ error: "Invalid authorization receipt." }, 400);
       const policy = await getPolicy(admin, user.id);
       if (!policy || evaluateTestTransferPolicy(policy).outcome === "BLOCK") return reply({ error: "The active policy no longer permits this transfer." }, 403);
-      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id);
-      if (currentRisk.decision.outcome !== "ALLOW") {
+      const tokenHash = hex(await sha256(encoder.encode(receipt)));
+      const { data: bindings, error: bindingError } = await admin.rpc("get_near_transfer_risk_binding_v1", {
+        p_owner_id: user.id, p_token_hash: tokenHash,
+      });
+      const binding = Array.isArray(bindings) ? bindings[0] : null;
+      if (bindingError || !binding || !isRecord(binding.proposal) ||
+          !isRecord(binding.proposal.counterpartyRisk)) {
+        return reply({ error: "The risk binding for this authorization receipt is unavailable. It cannot be consumed." }, 409);
+      }
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, binding.proposal_id);
+      if (currentRisk.decision.outcome === "BLOCK" ||
+          currentRisk.decision.outcome !== binding.proposal.counterpartyRisk.outcome) {
         return reply({
-          error: "Current counterparty risk checks no longer return ALLOW. The one-time receipt was not consumed.",
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is now BLOCK. The receipt was not consumed."
+            : "Counterparty risk changed. The receipt was not consumed; inspect and review again.",
           risk: currentRisk.decision,
         }, 403);
       }
-      const tokenHash = hex(await sha256(encoder.encode(receipt)));
+      const currentFingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: binding.policy_id,
+        policyVersion: binding.policy_version,
+        proposal: binding.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (currentFingerprint !== binding.proposal.counterpartyRiskFingerprint) {
+        return reply({ error: "Counterparty evidence changed. The receipt cannot be consumed." }, 403);
+      }
       const digest = await actionDigest(signerAccountId);
       const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v2", {
         p_owner_id: user.id, p_token_hash: tokenHash,

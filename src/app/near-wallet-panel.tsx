@@ -32,7 +32,13 @@ type OwnerWallet = {
   active: boolean;
 };
 
-export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
+export function NearWalletPanel({
+  proposalId,
+  riskReviewRequired = false,
+}: {
+  proposalId?: string;
+  riskReviewRequired?: boolean;
+}) {
   const connectorRef = useRef<NearConnector | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -42,6 +48,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const [txHash, setTxHash] = useState("");
   const [receipt, setReceipt] = useState("");
   const [authorizationConsumed, setAuthorizationConsumed] = useState(false);
+  const [riskReviewed, setRiskReviewed] = useState(false);
   const [walletRegistered, setWalletRegistered] = useState(false);
   const [wallets, setWallets] = useState<OwnerWallet[]>([]);
   const [walletToRevoke, setWalletToRevoke] = useState("");
@@ -61,6 +68,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       if (!active) return;
       setAccountId(event.accounts[0]?.accountId ?? null);
       setWalletRegistered(false);
+      setRiskReviewed(false);
       setNotice("Checking registered owner wallet status…");
       setError("");
     };
@@ -68,6 +76,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       if (!active) return;
       setAccountId(null);
       setWalletRegistered(false);
+      setRiskReviewed(false);
       setNotice("Wallet disconnected.");
       setTxHash("");
     };
@@ -235,6 +244,59 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
     }
   }
 
+
+  async function reviewCounterpartyRisk() {
+    const connector = connectorRef.current;
+    if (!connector || !accountId || !walletRegistered || !proposalId ||
+        !riskReviewRequired || busy || riskReviewed || txHash) return;
+    setBusy(true);
+    setError("");
+    setNotice("Preparing a signed acknowledgement for this exact counterparty warning…");
+    try {
+      const challenge = await authorizationRequest({
+        action: "risk_review_challenge",
+        proposalId,
+        signerAccountId: accountId,
+      });
+      if (typeof challenge.challengeId !== "string" ||
+          challenge.signerAccountId !== accountId ||
+          typeof challenge.message !== "string" ||
+          typeof challenge.nonceHex !== "string") {
+        throw new Error("MANDATE did not create a valid proposal-bound risk-review challenge.");
+      }
+
+      const wallet = await connector.wallet();
+      if (typeof wallet.signMessage !== "function") {
+        throw new Error("This wallet does not support NEP-413 message signing.");
+      }
+      setNotice("Read the risk acknowledgement carefully. This signature accepts the warning only; it does not approve or send a transaction…");
+      const signedMessage = await wallet.signMessage({
+        message: challenge.message,
+        recipient: challenge.recipient,
+        nonce: fromHex(challenge.nonceHex),
+        network: "testnet",
+        signerId: accountId,
+      });
+      const result = await authorizationRequest({
+        action: "risk_review_verify",
+        challengeId: challenge.challengeId,
+        signedMessage,
+      });
+      if (result.reviewed !== true || result.proposalId !== proposalId ||
+          result.riskFingerprint !== challenge.riskFingerprint) {
+        throw new Error("MANDATE did not confirm the review for this exact proposal and risk evidence.");
+      }
+      setRiskReviewed(true);
+      setNotice("Counterparty warning acknowledged for this proposal only. The risk outcome remains WARN. You must still approve the exact transaction separately in your NEAR wallet.");
+    } catch (cause) {
+      setRiskReviewed(false);
+      setError(cause instanceof Error ? cause.message : "The counterparty risk review could not be completed.");
+      setNotice("No risk acknowledgement was recorded. The transfer remains locked.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function retryTransactionVerification() {
     if (!txHash || !receipt || !accountId || busy) return;
     setBusy(true);
@@ -263,10 +325,11 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
 
   async function executeTestTransfer() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || busy || txHash) return;
+    if (!connector || !accountId || !walletRegistered || busy || txHash ||
+        (riskReviewRequired && !riskReviewed)) return;
     setBusy(true);
     setError("");
-    setNotice("Checking your active MANDATE policy…");
+    setNotice("Checking your active MANDATE policy and the reviewed risk evidence…");
     try {
       const challenge = await authorizationRequest({
         action: "challenge",
@@ -343,8 +406,11 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       }
       setNotice("Verified on NEAR Testnet: the exact 0.001 NEAR transfer reached the confirmed recipient.");
     } catch (cause) {
+      if (riskReviewRequired && !txHash) setRiskReviewed(false);
       setError(cause instanceof Error ? cause.message : "The transfer was cancelled or failed. Check wallet activity before retrying.");
-      setNotice("No successful transaction was confirmed by MANDATE.");
+      setNotice(riskReviewRequired && !txHash
+        ? "The risk acknowledgement may have expired or been consumed. Refresh the review before trying again."
+        : "No successful transaction was confirmed by MANDATE.");
     } finally {
       setBusy(false);
     }
@@ -426,14 +492,28 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       {accountId && walletRegistered && (
         <p className="near-wallet-notice" role="status">✓ This wallet is registered and verified for your signed-in MANDATE account.</p>
       )}
+      {accountId && walletRegistered && riskReviewRequired && !riskReviewed && (
+        <div className="near-transfer-box">
+          <strong>Counterparty risk acknowledgement required</strong>
+          <p>The destination received a WARN result. Your NEP-413 signature acknowledges this exact proposal and its current evidence fingerprint. It does not change WARN to ALLOW and does not approve a transaction.</p>
+          <button className="inspect-button" onClick={reviewCounterpartyRisk} disabled={busy || !proposalId || Boolean(txHash)}>
+            {busy ? "Preparing review…" : "Review warning & sign acknowledgement →"}
+          </button>
+          <p className="near-wallet-notice" role="status">The acknowledgement expires after five minutes and can be used once. A fresh risk check is required before authorization.</p>
+          {error && <p className="near-wallet-error" role="alert">{error}</p>}
+        </div>
+      )}
+      {accountId && walletRegistered && riskReviewRequired && riskReviewed && (
+        <p className="near-wallet-notice" role="status">✓ Risk acknowledgement recorded for this proposal only. The underlying risk outcome remains WARN; transaction approval is still required separately.</p>
+      )}
       {accountId && walletRegistered && (
         <div className="near-transfer-box">
           <div>
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed}>
-            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed || (riskReviewRequired && !riskReviewed)}>
+            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : riskReviewRequired && !riskReviewed ? "Complete signed risk review first" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
           {txHash && receipt && error && (

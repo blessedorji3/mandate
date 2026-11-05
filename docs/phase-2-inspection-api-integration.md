@@ -33,3 +33,25 @@ A WARN never reveals the Agent Chat wallet panel and never becomes an approval b
 - No wallet transaction or Mainnet feature is included.
 - Until the migrations and Edge Functions are deployed together, the missing lookup RPC causes risk to fail closed and prevents new wallet challenges.
 - Contract historical code-change evidence remains unavailable, so contract counterparties remain WARN.
+
+## Proposal-bound owner review for WARN
+
+The fixed Testnet wallet flow supports a separate owner-signed acknowledgement for an eligible WARN result. It does not edit the risk evaluator's output:
+- The acknowledgement is tied to the owner, proposal ID, target, policy ID/version, registered signing wallet, and a stable risk-evidence fingerprint.
+- The owner signs the full warning context and bounded warning reasons in a NEP-413 message using a registered active Testnet wallet.
+- The review challenge expires after 3 minutes; a completed review expires after 5 minutes and is consumed once when a transfer challenge is created.
+- The review row retains the verified wallet signature, signer account/public key, exact proposal and evidence fingerprint for audit.
+- A review does not approve the transaction. The existing transfer authorization signature and wallet's explicit transaction approval remain separate.
+- The risk engine continues to report WARN; it is never rewritten as ALLOW.
+- A BLOCK result has no review action. The Edge Function and database reject BLOCK, and the database also rechecks the confirmed shared blocklist at review and execution transitions.
+- Policy version changes, evidence fingerprint changes, wallet revocation, expiry, recovery freeze, replay, or a newly confirmed blocklist entry invalidate the path.
+
+The Agent Chat presents a dedicated “Review warning & sign acknowledgement” step for exact supported proposals. After the review is recorded, the ordinary transfer authorization flow becomes available. A failure or expired review locks the transfer again and requires a fresh review.
+
+The database tests cover owner-bound review creation, replay rejection, stored signature retention, WARN challenge gating, policy approval-required mode, and the inability of a previous WARN acknowledgement to override a later BLOCK or confirmed blocklist entry.
+
+## Remaining constraints
+
+- The current review flow applies only to the fixed 0.001 NEAR NEAR Testnet transfer to confirmwithmandate.testnet; it is not a general-purpose approval framework for swaps, arbitrary contract calls, or other targets.
+- Human review decisions are currently signed by the owner's registered NEAR wallet; there is not a separate administrator/reviewer workflow for curating shared blocklist reports.
+- Contract historical code-change evidence remains unavailable, so contract counterparties continue to receive WARN.

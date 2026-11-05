@@ -36,7 +36,13 @@ describe("assessCounterpartyRisk", () => {
     const { dependencies, calls } = deps();
     await assessCounterpartyRisk(ownerId, target, dependencies as never);
     expect(calls).toContainEqual(["blocklist", "testnet", target]);
-    expect(calls).toContainEqual(["interactions", ownerId, "testnet", target]);
+    expect(calls).toContainEqual(["interactions", ownerId, "testnet", target, undefined]);
+  });
+
+  it("excludes the proposal being evaluated from its own interaction history", async () => {
+    const { dependencies, calls } = deps({ excludeProposalId: "proposal-current" });
+    await assessCounterpartyRisk(ownerId, target, dependencies as never);
+    expect(calls).toContainEqual(["interactions", ownerId, "testnet", target, "proposal-current"]);
   });
 
   it("downgrades malformed database rows to unavailable evidence", async () => {

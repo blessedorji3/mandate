@@ -18,13 +18,18 @@ export function createSupabaseRiskDependencies(
       if (Array.isArray(data)) return data[0] ?? null;
       return data ?? null;
     },
-    countPreviousInteractions: async (ownerId, network, targetAccountId) => {
+    countPreviousInteractions: async (ownerId, network, targetAccountId, excludeProposalId) => {
       // The current product is Testnet-only. Include legacy receipts that predate a stored network tag.
-      const { count, error } = await admin
+      let query = admin
         .from("authorization_decisions")
         .select("id", { count: "exact", head: true })
         .eq("owner_id", ownerId)
         .filter("proposal->>target", "eq", targetAccountId);
+      if (excludeProposalId) {
+        // Exclude the receipt created for this very inspection.
+        query = query.neq("proposal_id", excludeProposalId);
+      }
+      const { count, error } = await query;
       if (error || count === null) {
         throw new Error("Owner-scoped MANDATE interaction history is unavailable.");
       }

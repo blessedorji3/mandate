@@ -7,6 +7,7 @@ import { assessCounterpartyRisk } from "@/security/counterparty-risk-service";
 import { evaluateCounterpartyRisk } from "@/security/counterparty-risk";
 import { combinePolicyAndCounterpartyRisk } from "@/security/inspection-risk";
 import { createSupabaseRiskDependencies } from "@/security/supabase-risk-dependencies";
+import { fingerprintCounterpartyRisk } from "@/security/counterparty-risk-review";
 
 export const runtime = "nodejs";
 const jsonHeaders = { "Cache-Control": "no-store" };
@@ -99,10 +100,33 @@ export async function POST(request: Request) {
       : policyDecision;
     const decision = combinePolicyAndCounterpartyRisk(boundedPolicyDecision, riskAssessment.decision);
 
-    const recordedProposal = {
+    const fingerprintableProposal = {
       ...proposalRecord,
       network: "testnet",
+    };
+    const counterpartyRiskFingerprint =
+      typeof proposalRecord.id === "string" &&
+      typeof proposalRecord.actionType === "string" &&
+      typeof proposalRecord.asset === "string" &&
+      typeof proposalRecord.amountAtomic === "string" &&
+      typeof proposalRecord.target === "string" &&
+      riskAssessment.decision.accountId === proposalRecord.target
+        ? await fingerprintCounterpartyRisk({
+            ownerId: user.id,
+            policyId: policy.id,
+            policyVersion: policy.version,
+            proposal: fingerprintableProposal as {
+              id: string; agentId?: string; actionType: string; asset: string;
+              amountAtomic: string; target: string; network: string;
+              protocol?: string; approvalAmountAtomic?: string;
+            },
+            risk: riskAssessment.decision,
+          })
+        : null;
+    const recordedProposal = {
+      ...fingerprintableProposal,
       counterpartyRisk: riskAssessment.decision,
+      counterpartyRiskFingerprint,
       riskCollection: riskAssessment.collection,
     };
     const { error: receiptError } = await supabase.from("authorization_decisions").insert({
