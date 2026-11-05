@@ -35,6 +35,7 @@ jobs:
         run: |
           deno check --node-modules-dir=auto supabase/functions/agent-inspect/index.ts
           deno check --node-modules-dir=auto supabase/functions/near-transfer-authorization/index.ts
+          deno check --node-modules-dir=auto supabase/functions/near-transfer-authorization/transfer-approval-lifecycle-integration.test.ts
       - name: Run recovery signature and challenge security tests
         run: deno test supabase/functions/near-transfer-authorization/recovery-security.test.ts
       - name: Run Meteor NEP-413 recovery reset diagnostic
