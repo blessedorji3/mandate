@@ -1,5 +1,5 @@
-import { collectAndEvaluateNearTestnetCounterparty, type CounterpartyRiskCollection } from "./collect-counterparty-risk";
-import { evaluateCounterpartyRisk, type BlocklistEvidence, type CounterpartyRiskDecision } from "./counterparty-risk";
+import { collectAndEvaluateNearTestnetCounterparty, type CounterpartyRiskCollection } from "./collect-counterparty-risk.ts";
+import { evaluateCounterpartyRisk, type BlocklistEvidence, type CounterpartyRiskDecision } from "./counterparty-risk.ts";
 
 type DatabaseBlocklistRow = {
   status: "confirmed" | "pending" | "rejected";

@@ -1,4 +1,4 @@
-import type { CounterpartyRiskDecision } from "./counterparty-risk";
+import type { CounterpartyRiskDecision } from "./counterparty-risk.ts";
 
 export type RiskGateResult =
   | { status: "STOP"; reason: string }

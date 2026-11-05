@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
+import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
 import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413, verifyNep413WithOptionalCallback } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
@@ -249,6 +250,32 @@ async function actionDigest(signerAccountId: string) {
 }
 function proposalId() {
   return "near-test-" + crypto.randomUUID();
+}
+
+async function assessCurrentCounterpartyRisk(
+  admin: ReturnType<typeof createClient>,
+  ownerId: string,
+) {
+  return assessCounterpartyRisk(ownerId, TEST_TRANSFER.receiverId, {
+    findBlocklistRecord: async (network, accountId) => {
+      const lookup = await admin.rpc("lookup_counterparty_blocklist", {
+        p_network: network,
+        p_account_id: accountId,
+      });
+      if (lookup.error) throw new Error("Counterparty blocklist lookup is unavailable.");
+      return Array.isArray(lookup.data) ? lookup.data[0] ?? null : lookup.data ?? null;
+    },
+    countPreviousInteractions: async (authenticatedOwnerId, _network, accountId) => {
+      const result = await admin.from("authorization_decisions")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_id", authenticatedOwnerId)
+        .filter("proposal->>target", "eq", accountId);
+      if (result.error || result.count === null) {
+        throw new Error("Owner-scoped counterparty history is unavailable.");
+      }
+      return result.count;
+    },
+  });
 }
 
 export async function handleRequest(req: Request) {
@@ -921,6 +948,14 @@ export async function handleRequest(req: Request) {
       const policy = await getPolicy(admin, user.id);
       if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
       const evaluated = evaluateTestTransferPolicy(policy);
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id);
+      if (currentRisk.decision.outcome !== "ALLOW") {
+        return reply({
+          error: "Current counterparty risk checks did not return ALLOW. No wallet challenge was created.",
+          risk: currentRisk.decision,
+          riskCollection: currentRisk.collection,
+        }, 403);
+      }
       let decision: Record<string, unknown>;
       if (body.proposalId !== undefined && typeof body.proposalId !== "string") {
         return reply({ error: "Invalid inspected proposal reference." }, 400);
@@ -939,6 +974,8 @@ export async function handleRequest(req: Request) {
             inspected.policy_version !== policy.version ||
             !["ALLOW", "REQUIRE_APPROVAL"].includes(inspected.outcome) ||
             !isRecord(inspected.proposal) ||
+            !isRecord(inspected.proposal.counterpartyRisk) ||
+            inspected.proposal.counterpartyRisk.outcome !== "ALLOW" ||
             inspected.proposal.id !== inspected.proposal_id ||
             inspected.proposal.actionType !== "transfer" ||
             inspected.proposal.asset !== "NEAR" ||
@@ -958,6 +995,8 @@ export async function handleRequest(req: Request) {
           actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
           amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
           network: TEST_TRANSFER.network,
+          counterpartyRisk: currentRisk.decision,
+          riskCollection: currentRisk.collection,
         };
         const { error: decisionError } = await admin.from("authorization_decisions").insert({
           owner_id: user.id, policy_id: policy.id, policy_version: policy.version,
@@ -1040,6 +1079,13 @@ export async function handleRequest(req: Request) {
           evaluateTestTransferPolicy(policy).outcome === "BLOCK") {
         return reply({ error: "The active policy changed or no longer permits this transfer. Start again." }, 409);
       }
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id);
+      if (currentRisk.decision.outcome !== "ALLOW") {
+        return reply({
+          error: "Current counterparty risk checks no longer return ALLOW. No authorization receipt was issued.",
+          risk: currentRisk.decision,
+        }, 409);
+      }
       const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
       const token = hex(tokenBytes);
       const tokenHash = hex(await sha256(encoder.encode(token)));
@@ -1065,6 +1111,13 @@ export async function handleRequest(req: Request) {
           typeof signerAccountId !== "string") return reply({ error: "Invalid authorization receipt." }, 400);
       const policy = await getPolicy(admin, user.id);
       if (!policy || evaluateTestTransferPolicy(policy).outcome === "BLOCK") return reply({ error: "The active policy no longer permits this transfer." }, 403);
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id);
+      if (currentRisk.decision.outcome !== "ALLOW") {
+        return reply({
+          error: "Current counterparty risk checks no longer return ALLOW. The one-time receipt was not consumed.",
+          risk: currentRisk.decision,
+        }, 403);
+      }
       const tokenHash = hex(await sha256(encoder.encode(receipt)));
       const digest = await actionDigest(signerAccountId);
       const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v2", {

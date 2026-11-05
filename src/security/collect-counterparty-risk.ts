@@ -3,9 +3,9 @@ import {
   type BlocklistEvidence,
   type CounterpartyRiskDecision,
   type RiskSignal,
-} from "./counterparty-risk";
-import { collectNearTestnetEvidence } from "./near-counterparty-evidence";
-import { collectNearTestnetHistory } from "./near-counterparty-history";
+} from "./counterparty-risk.ts";
+import { collectNearTestnetEvidence } from "./near-counterparty-evidence.ts";
+import { collectNearTestnetHistory } from "./near-counterparty-history.ts";
 
 export type CounterpartyRiskCollection = {
   network: "testnet";
