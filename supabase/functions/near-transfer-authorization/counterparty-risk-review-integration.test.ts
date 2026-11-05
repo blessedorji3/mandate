@@ -14,7 +14,27 @@ Deno.test("proposal-bound risk review rejects identity and signature substitutio
     anon: Deno.env.get("SUPABASE_ANON_KEY"),
     service: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
   };
-  const calls: Array<{ url: string; body: Record<string, unknown> | null }> = [];
+  const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
+  const proposal = {
+    id: "phase2-risk-proposal-001",
+    actionType: "transfer",
+    asset: "NEAR",
+    amountAtomic: "1000000000000000000000",
+    target: "confirmwithmandate.testnet",
+    network: "testnet",
+    counterpartyRisk: { outcome: "WARN", reasons: ["Account history evidence is incomplete."] },
+    counterpartyRiskFingerprint: "a".repeat(64),
+  };
+  const activePolicy = {
+    id: POLICY_ID,
+    version: 1,
+    active: true,
+    max_amount_atomic: "1000000000000000000000",
+    allowed_recipients: ["confirmwithmandate.testnet"],
+    allowed_action_types: ["transfer"],
+    require_approval_for_token_approvals: true,
+    require_approval_for_all_actions: false,
+  };
   const challenge = {
     id: CHALLENGE_ID,
     proposal_id: "phase2-risk-proposal-001",
@@ -43,7 +63,8 @@ Deno.test("proposal-bound risk review rejects identity and signature substitutio
         body = null;
       }
     }
-    calls.push({ url, body });
+    const method = init?.method ?? "GET";
+    calls.push({ url, method, body });
 
     if (url.endsWith("/auth/v1/user")) {
       const headers = new Headers(init?.headers);
@@ -59,12 +80,52 @@ Deno.test("proposal-bound risk review rejects identity and signature substitutio
         ? [{ account_id: ACCOUNT_ID, public_key: PUBLIC_KEY, revoked_at: null }]
         : []);
     }
-    if (url === "https://rpc.testnet.fastnear.com") {
+    if (url.endsWith("/rest/v1/rpc/lookup_counterparty_blocklist")) {
+      return Response.json([{
+        status: "confirmed",
+        evidence_ref: "https://evidence.example/confirmed-risk",
+        reason: "Confirmed malicious counterparty",
+        reviewed_at: "2026-11-05T05:00:00.000Z",
+        reviewer_owner_id: "50000000-0000-4000-8000-000000000001",
+      }]);
+    }
+    if (url.includes("/rest/v1/security_policies")) return Response.json(activePolicy);
+    if (url.includes("/rest/v1/authorization_decisions")) {
+      if (method === "HEAD") {
+        return new Response(null, { status: 200, headers: { "content-range": "*/0" } });
+      }
       return Response.json({
-        jsonrpc: "2.0",
-        id: "mandate-access-key-check",
-        result: { keys: [{ public_key: PUBLIC_KEY, access_key: { permission: "FullAccess" } }] },
+        proposal_id: proposal.id,
+        policy_id: POLICY_ID,
+        policy_version: 1,
+        outcome: "REQUIRE_APPROVAL",
+        proposal,
       });
+    }
+    if (url === "https://rpc.testnet.fastnear.com") {
+      const rpcBody = body as Record<string, unknown> | null;
+      if (rpcBody?.id === "mandate-risk-status") {
+        return Response.json({ jsonrpc: "2.0", id: rpcBody.id, result: {
+          chain_id: "testnet", sync_info: { latest_block_height: 123 },
+        } });
+      }
+      if (rpcBody?.id === "mandate-risk-account") {
+        return Response.json({ jsonrpc: "2.0", id: rpcBody.id, result: {
+          code_hash: "11111111111111111111111111111111",
+          amount: "0", locked: "0", storage_usage: 0,
+        } });
+      }
+      if (rpcBody?.id === "mandate-access-key-check") {
+        return Response.json({ jsonrpc: "2.0", id: rpcBody.id, result: {
+          keys: [{ public_key: PUBLIC_KEY, access_key: { permission: "FullAccess" } }],
+        } });
+      }
+    }
+    if (url.startsWith("https://tx.test.fastnear.com/v0/account")) {
+      return Response.json({ account_txs: [], txs_count: 0, resume_token: null });
+    }
+    if (url.endsWith("/rest/v1/rpc/create_counterparty_risk_review_challenge_v1")) {
+      return Response.json(body?.p_id ?? null);
     }
     return Response.json({ message: "Unexpected test request" }, { status: 500 });
   }) as typeof fetch;
@@ -129,6 +190,32 @@ Deno.test("proposal-bound risk review rejects identity and signature substitutio
       calls.some(c => c.url.endsWith("/rest/v1/rpc/complete_counterparty_risk_review_v1")),
       false,
       "no invalid account, key, or signature may create a review record",
+    );
+
+    const blockedReview = await handleRequest(new Request(endpoint, {
+      method: "POST",
+      headers: {
+        origin: PHASE2_PREVIEW_ORIGIN,
+        "content-type": "application/json",
+        authorization: "Bearer valid-review-owner-token",
+      },
+      body: JSON.stringify({
+        action: "risk_review_challenge",
+        proposalId: proposal.id,
+        signerAccountId: ACCOUNT_ID,
+      }),
+    }));
+    assertEquals(blockedReview.status, 409, "a newly confirmed shared BLOCK must deny an owner review challenge");
+    const blockedBody = await blockedReview.json() as Record<string, unknown>;
+    assertEquals(
+      (blockedBody.risk as Record<string, unknown>)?.outcome,
+      "BLOCK",
+      "the confirmed blocklist must remain a non-overridable BLOCK",
+    );
+    assertEquals(
+      calls.some(c => c.url.endsWith("/rest/v1/rpc/create_counterparty_risk_review_challenge_v1")),
+      false,
+      "BLOCK must not create a review challenge, even for the registered owner wallet",
     );
   } finally {
     globalThis.fetch = originalFetch;
