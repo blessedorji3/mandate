@@ -123,7 +123,7 @@ select is(
     '51000000-0000-4000-8000-000000000001',
     repeat('c', 64),
     'approval-owner.testnet',
-    repeat('1', 44),
+    'US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx',
     floor(extract(epoch from clock_timestamp() + interval '10 seconds') * 1000000000)::text
   ),
   true,
@@ -135,7 +135,7 @@ select is(
    from mandate_private.near_transfer_receipts
    where owner_id = '51000000-0000-4000-8000-000000000001'
      and token_hash = decode(repeat('c', 64), 'hex')),
-  repeat('1', 44),
+  'US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx',
   'the verified transaction hash is retained on the exact consumed receipt'
 );
 
@@ -152,7 +152,7 @@ select is(
     '51000000-0000-4000-8000-000000000001',
     repeat('c', 64),
     'approval-owner.testnet',
-    repeat('2', 44),
+    'YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf',
     floor(extract(epoch from clock_timestamp() + interval '10 seconds') * 1000000000)::text
   ),
   false,
