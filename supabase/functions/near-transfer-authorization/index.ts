@@ -203,8 +203,17 @@ async function rpcViewAccessKeys(accountId: string) {
   if (!Array.isArray(result.keys)) throw new Error("Could not verify NEAR account access keys");
   return result.keys as Array<{ public_key: string; access_key: { permission: unknown } }>;
 }
+class TransferVerificationRejected extends Error {
+  constructor(message: string, readonly code = "TRANSACTION_DOES_NOT_MATCH_AUTHORIZATION") {
+    super(message);
+    this.name = "TransferVerificationRejected";
+  }
+}
+
 async function verifyOnChainTransfer(transactionHash: string, signerAccountId: string) {
-  if (base58Decode(transactionHash).length !== 32) throw new Error("Invalid NEAR transaction hash");
+  if (base58Decode(transactionHash).length !== 32) {
+    throw new TransferVerificationRejected("Invalid NEAR transaction hash");
+  }
   const result = await nearTestnetRpc({
     jsonrpc: "2.0", id: "mandate-verify-transfer", method: "tx",
     params: { tx_hash: transactionHash, sender_account_id: signerAccountId, wait_until: "FINAL" },
@@ -213,12 +222,15 @@ async function verifyOnChainTransfer(transactionHash: string, signerAccountId: s
   if (!tx || tx.hash !== transactionHash || tx.signer_id !== signerAccountId ||
       tx.receiver_id !== TEST_TRANSFER.receiverId || !Array.isArray(tx.actions) ||
       tx.actions.length !== 1 || tx.actions[0]?.Transfer?.deposit !== TEST_TRANSFER.amountAtomic) {
-    throw new Error("On-chain transaction does not match the exact MANDATE-authorized transfer");
+    throw new TransferVerificationRejected("On-chain transaction does not match the exact MANDATE-authorized transfer");
   }
   const status = result.status;
   if (result.final_execution_status !== "FINAL" || !status || typeof status !== "object" ||
       !("SuccessValue" in status || "SuccessReceiptId" in status) || "Failure" in status) {
-    throw new Error("The NEAR Testnet transaction did not complete successfully");
+    throw new TransferVerificationRejected(
+      "The NEAR Testnet transaction did not complete successfully",
+      "TRANSACTION_NOT_FINAL_SUCCESS",
+    );
   }
   const blockHash = result.transaction_outcome?.block_hash;
   if (typeof blockHash !== "string" || base58Decode(blockHash).length !== 32) {
@@ -1453,6 +1465,14 @@ export async function handleRequest(req: Request) {
     const detail = error instanceof Error ? error.message : "Unknown authorization error.";
     console.error("NEAR transfer authorization error:", detail);
     if (body.action === "verify_transaction") {
+      if (error instanceof TransferVerificationRejected) {
+        return reply({
+          error: detail,
+          code: error.code,
+          retryable: false,
+          transactionHash: typeof body.transactionHash === "string" ? body.transactionHash : null,
+        }, 409);
+      }
       return reply({
         error: "The wallet has already submitted this transaction, but MANDATE could not verify its final Testnet status yet. Do not send it again; retry verification using the same transaction hash.",
         code: "TRANSACTION_VERIFICATION_UNAVAILABLE",
