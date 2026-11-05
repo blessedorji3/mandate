@@ -167,7 +167,7 @@ begin
       and b.account_id = 'confirmwithmandate.testnet'
       and b.status = 'confirmed'
   ) then
-    return false;
+    return null;
   end if;
   if exists (select 1 from mandate_private.near_wallet_recovery_requests
     where owner_id = p_owner_id and status = 'pending') then
@@ -230,8 +230,13 @@ declare
   v_risk_fingerprint text;
   v_review mandate_private.counterparty_risk_reviews%rowtype;
 begin
-  if p_owner_id is null or p_nonce_hex !~ '^[0-9a-f]{64}$'
-     or p_action_digest !~ '^[0-9a-f]{64}$' or length(p_message) > 2048
+  if p_owner_id is null or p_id is null or p_nonce_hex is null
+     or p_message is null or p_signer_account_id is null
+     or p_policy_id is null or p_policy_version is null or p_policy_version < 1
+     or p_proposal_id is null or p_action_digest is null
+     or p_nonce_hex !~ '^[0-9a-f]{64}$'
+     or p_action_digest !~ '^[0-9a-f]{64}$'
+     or length(p_message) not between 1 and 2048
      or p_signer_account_id !~ '^[a-z0-9._-]{2,64}[.]testnet$'
      or p_proposal_id !~ '^[a-zA-Z0-9_-]{1,128}$' then
     raise exception 'Invalid challenge data';
