@@ -227,6 +227,7 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
       message: String(challenged.body.message),
       nonce,
       recipient: String(challenged.body.recipient ?? APP_RECIPIENT),
+      callbackUrl: ORIGIN,
     });
     const signedMessage = {
       accountId: ACCOUNT_ID,
