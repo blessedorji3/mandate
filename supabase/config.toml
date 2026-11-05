@@ -10,3 +10,10 @@ verify_jwt = false
 
 [functions.near-transfer-authorization]
 verify_jwt = true
+
+# Use non-default ports for the disposable CI stack; some hosted runners already
+# reserve the default Inbucket/Mailpit web port (54324).
+[inbucket]
+port = 55424
+smtp_port = 55425
+pop3_port = 55426
