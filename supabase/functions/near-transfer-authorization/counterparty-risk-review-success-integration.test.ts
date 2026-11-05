@@ -218,6 +218,7 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     });
     assertEquals(challenged.response.status, 200, JSON.stringify(challenged.body));
     assertEquals(challenged.body.riskFingerprint, fingerprint);
+    assertEquals(challenged.body.expiresInSeconds, 300, "risk-review challenge lifetime must match the five-minute UI");
     assertEquals(typeof challenged.body.message, "string");
 
     const nonce = Uint8Array.from(
