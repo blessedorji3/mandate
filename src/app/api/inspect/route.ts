@@ -19,6 +19,10 @@ export async function POST(request: Request) {
     if (authError || !user) {
       return NextResponse.json({ error: "Sign in before inspecting an action." }, { status: 401, headers: jsonHeaders });
     }
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.access_token) {
+      return NextResponse.json({ error: "Your MANDATE session could not be verified. Sign in again." }, { status: 401, headers: jsonHeaders });
+    }
 
     let rawBody: string;
     try {
@@ -83,6 +87,7 @@ export async function POST(request: Request) {
     const { data: riskData, error: riskError } = await supabase.functions.invoke(
       "near-transfer-authorization",
       {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: {
           action: "counterparty_inspect",
           proposal: {
