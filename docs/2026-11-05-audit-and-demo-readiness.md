@@ -7,17 +7,19 @@
 
 ## Executive finding
 
-The project does not need a wholesale rebuild. The repeated Agent Chat failure is best explained by a specific NEP-413 interoperability regression in the Phase 2 owner-risk acknowledgement:
+The project does not need a wholesale rebuild. The evidence points to a real mismatch between the Meteor Wallet adapter contract and the integration test that had been used as proof:
 
-1. A prior Meteor Wallet compatibility fix made the recovery-reset message ASCII-only.
-2. Phase 2 reintroduced a Unicode em dash and directly included dynamic risk-reason text in the message being signed.
-3. The real `@hot-labs/near-connect` Meteor adapter drops `callbackUrl` before it calls Meteor Wallet, so the actual signer uses NEP-413 `callback_url=None`.
-4. The previous positive integration test signed with an explicit page callback. It therefore tested a different wallet contract from the actual Meteor adapter.
-5. The custom browser/network diagnostics then showed all three tested callback reconstructions failing for the real Meteor result. This was before the ASCII and Option::None test corrections.
+1. A prior Meteor Wallet compatibility change made the recovery-reset challenge ASCII-only.
+2. Phase 2 reintroduced a Unicode em dash and inserted dynamic risk-reason text into the signed message without normalization.
+3. The exact `@hot-labs/near-connect` 0.11.4 Meteor adapter drops `callbackUrl` before it calls Meteor Wallet, so the real adapter signs NEP-413 `callback_url=None`.
+4. The old positive Phase 2 integration test signed with an explicit page callback. It tested a different payload from the actual Meteor adapter and therefore gave false confidence about the browser path.
+5. Hosted diagnostics from the failed Meteor attempt showed the signer account/key matched, with a 64-byte signature and 32-byte nonce, but page, origin and omitted-callback reconstruction all failed. This was before the ASCII and adapter-shaped Option::None corrections.
 
-The current fix sanitizes the complete challenge to printable ASCII, asserts that property before writing the challenge, and models Meteor's omitted callback in the integration test. The test suite now verifies the positive HTTP acknowledgement lifecycle and replay rejection.
+The current fix sanitizes dynamic warning text to printable ASCII, hard-checks the complete challenge before storing it, pins the audited adapter version, and models Meteor's omitted callback in the positive integration test. The test suite now verifies the positive HTTP acknowledgement lifecycle and replay rejection.
 
-**Important qualification:** CI and synthetic NEP-413 integration tests are green, but the actual Meteor Wallet browser round trip has not yet passed after the v29 correction. The final external wallet acknowledgement remains the decisive demo gate.
+**Important cryptographic nuance:** NEP-413 supports UTF-8 strings. The saved `nep413_local_test.py` uses a freshly generated local Ed25519 key and verifies a Unicode message with callback `None`; it is an offline serialization regression test, not a test against Meteor Wallet. Therefore the em dash alone is not proven to be the sole cause. The confirmed gap was that tests did not match the actual Meteor adapter contract. The printable-ASCII safeguard restores the prior Meteor compatibility discipline, but only the next real Meteor browser signature can prove the external path is fixed.
+
+**Important qualification:** CI and adapter-shaped NEP-413 integration tests are green, but the actual Meteor Wallet browser round trip has not yet passed after the v29 correction. The final external wallet acknowledgement remains the decisive demo gate.
 
 ## What was inspected
 
