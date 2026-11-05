@@ -85,6 +85,14 @@ select is(
 );
 
 select ok(
+  (select expires_at >= now() + interval '4 minutes 59 seconds'
+       and expires_at <= now() + interval '5 minutes 1 second'
+   from mandate_private.counterparty_risk_review_challenges
+   where id = '44000000-0000-4000-8000-000000000002'),
+  'owner risk-review challenge retains the full five-minute acknowledgement window'
+);
+
+select ok(
   (select count(*) = 1
    from public.get_counterparty_risk_review_challenge_v1(
      '41000000-0000-4000-8000-000000000001',
