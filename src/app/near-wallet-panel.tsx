@@ -282,21 +282,22 @@ export function NearWalletPanel({
         throw new Error("This wallet does not support NEP-413 message signing.");
       }
       setNotice("Read the risk acknowledgement carefully. This signature accepts the warning only; it does not approve or send a transaction…");
+      // Some browser wallets sign the full page URL as callback_url, not just
+      // the origin. Use the exact current href and submit the same value for
+      // verification; the server independently checks its HTTPS origin.
+      const callbackUrl = window.location.href;
       const signedMessage = await wallet.signMessage({
         message: challenge.message,
         recipient: challenge.recipient,
         nonce: fromHex(challenge.nonceHex),
-        // Pin a deterministic callback URL so callback-aware wallet adapters
-        // and the server verifier sign/verify the same NEP-413 payload.
-        // The connector runtime forwards callbackUrl, but its older public
-        // SignMessageParams type does not yet declare this optional field.
-        callbackUrl: window.location.origin,
+        callbackUrl,
         network: "testnet",
         signerId: accountId,
       } as Parameters<typeof wallet.signMessage>[0] & { callbackUrl: string });
       const result = await authorizationRequest({
         action: "risk_review_verify",
         challengeId: challenge.challengeId,
+        callbackUrl,
         signedMessage,
       });
       if (result.reviewed !== true || result.proposalId !== proposalId ||
