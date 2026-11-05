@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1";
+import { assert, assertEquals } from "jsr:@std/assert@1";
 import { KeyPairEd25519, KeyPairSigner } from "npm:near-api-js@7.3.1";
 import { recoveryTestUtils } from "./recovery-security.ts";
 
@@ -55,7 +55,7 @@ Deno.test("NEAR transfer authorization completes the signed HTTP lifecycle under
     require_approval_for_all_actions: true,
   };
 
-  let insertedDecision: Record<string, unknown> | null = null;
+  const insertedDecisions: Array<Record<string, unknown>> = [];
   let storedChallenge: Record<string, unknown> | null = null;
   let challengeFinalized = false;
   let expectedReceiptHash = "";
@@ -139,12 +139,13 @@ Deno.test("NEAR transfer authorization completes the signed HTTP lifecycle under
           return Response.json(true);
         case "get_near_transfer_risk_binding_v1":
           if (body.p_owner_id !== OWNER_ID || body.p_token_hash !== expectedReceiptHash ||
-              !insertedDecision) return Response.json([]);
+              insertedDecisions.length === 0) return Response.json([]);
+          const decision = insertedDecisions[0];
           return Response.json([{
-            proposal_id: insertedDecision.proposal_id,
-            policy_id: insertedDecision.policy_id,
-            policy_version: insertedDecision.policy_version,
-            proposal: insertedDecision.proposal,
+            proposal_id: decision.proposal_id,
+            policy_id: decision.policy_id,
+            policy_version: decision.policy_version,
+            proposal: decision.proposal,
           }]);
         case "consume_near_transfer_authorization_v2": {
           consumeCalls++;
@@ -189,12 +190,14 @@ Deno.test("NEAR transfer authorization completes the signed HTTP lifecycle under
         return new Response(null, { status: 200, headers: { "content-range": "*/0" } });
       }
       if (method === "POST") {
-        insertedDecision = Array.isArray(body) ? jsonBody(body[0]) : body;
+        const decisionRecord = Array.isArray(body) ? jsonBody(body[0]) : body;
+        insertedDecisions.push(decisionRecord);
         return new Response(null, { status: 201, headers: { "content-range": "*/1" } });
       }
       if (method === "GET") {
-        return insertedDecision
-          ? Response.json(insertedDecision)
+        const decisionRecord = insertedDecisions[0];
+        return decisionRecord
+          ? Response.json(decisionRecord)
           : new Response(null, { status: 406 });
       }
     }
@@ -347,7 +350,7 @@ Deno.test("NEAR transfer authorization completes the signed HTTP lifecycle under
       "the database owner must come from the authenticated Supabase user",
     );
     assertEquals(
-      (insertedDecision?.outcome),
+      insertedDecisions[0]?.outcome,
       "REQUIRE_APPROVAL",
       "the challenged authorization decision must retain the policy-required approval outcome",
     );
