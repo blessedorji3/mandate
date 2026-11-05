@@ -137,13 +137,18 @@ Deno.test("blocklist reviewer HTTP actions use verified Auth actors and audited 
       ["submit_counterparty_blocklist_report_v1", REPORTER_ID],
       ["list_counterparty_blocklist_review_queue_v1", REVIEWER_ID],
       ["review_counterparty_blocklist_report_v1", REVIEWER_ID],
-      ["provision_counterparty_blocklist_reviewer_v1", ADMIN_ID],
       ["list_counterparty_blocklist_audit_v1", ADMIN_ID],
     ]);
-    for (const call of calls) {
+    for (const call of calls.filter((item) => item.name !== "provision_counterparty_blocklist_reviewer_v1")) {
       const expected = expectedActors.get(call.name);
       assertEquals(call.body.p_reporter_owner_id ?? call.body.p_actor_owner_id ?? call.body.p_reviewer_owner_id, expected);
     }
+    assertEquals(
+      calls.filter((call) => call.name === "provision_counterparty_blocklist_reviewer_v1")
+        .map((call) => call.body.p_actor_owner_id),
+      [REVIEWER_ID, ADMIN_ID],
+      "the failed reviewer attempt and successful admin grant must use their JWT-backed identities",
+    );
     assertEquals(calls.filter((call) => call.name === "review_counterparty_blocklist_report_v1")[0]?.body.p_reviewer_owner_id, REVIEWER_ID);
     assertEquals(calls.filter((call) => call.name === "submit_counterparty_blocklist_report_v1")[0]?.body.p_reporter_owner_id, REPORTER_ID);
   } finally {
