@@ -191,7 +191,7 @@ Deno.test("valid NEP-413 WARN acknowledgement completes the proposal-bound HTTP 
     // Its evidence fingerprint must match the later signed-review challenge.
     const sharedInspection = await responseFor("counterparty_inspect", { proposal });
     assertEquals(sharedInspection.response.status, 200, JSON.stringify(sharedInspection.body));
-    assertEquals(sharedInspection.body.riskFingerprint, fingerprint);
+    assertEquals(sharedInspection.body.counterpartyRiskFingerprint, fingerprint);
     const sharedRisk = sharedInspection.body.risk;
     assert(typeof sharedRisk === "object" && sharedRisk !== null && !Array.isArray(sharedRisk));
     assertEquals((sharedRisk as Record<string, unknown>).outcome, initial.decision.outcome);
