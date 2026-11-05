@@ -21,9 +21,9 @@ This feature branch integrates the independent counterparty-risk engine into bot
 
 ## Wallet-authorization boundary
 
-The fixed Testnet wallet endpoint independently re-evaluates counterparty risk before creating a challenge, issuing a receipt after signature verification, and consuming the one-time receipt. It also requires the inspected proposal to carry a recorded risk ALLOW. The database challenge, finalization and consumption functions independently require a matching owner-scoped decision receipt whose `proposal.counterpartyRisk.outcome` is ALLOW.
+The fixed Testnet wallet endpoint independently re-evaluates counterparty risk before creating a challenge, issuing a receipt after signature verification, and consuming the one-time receipt. The database challenge, finalization and consumption functions accept risk ALLOW, or a current one-time owner review bound to the exact WARN proposal. They independently reject BLOCK and any missing or stale risk evidence.
 
-A WARN never reveals the Agent Chat wallet panel and never becomes an approval bypass. Risk ALLOW remains separate from the policy decision and from the wallet's explicit owner signature.
+A WARN can reveal only the dedicated Agent Chat owner-review step for the exact supported Testnet proposal. Until that acknowledgement is signed and recorded, the transfer action remains locked. The acknowledgement does not change WARN to ALLOW or approve the transaction; the ordinary transfer signature and explicit wallet confirmation remain separate. The Developer API exposes WARN as REQUIRE_APPROVAL and does not provide a generic execution path.
 
 ## Deployment status
 
