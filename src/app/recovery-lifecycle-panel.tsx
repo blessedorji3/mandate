@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  connectExactMeteorRecoveryAccount,
   createMeteorRecoverySigner,
   signExactMeteorRecoveryChallenge,
   type MeteorRecoveryChallenge,
@@ -43,6 +44,7 @@ export function RecoveryLifecyclePanel() {
   const [request, setRequest] = useState<RecoveryRequest | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
   const [challenge, setChallenge] = useState<PreparedChallenge | null>(null);
+  const [meteorConnectedAccountId, setMeteorConnectedAccountId] = useState<string | null>(null);
   const [challengeSecondsRemaining, setChallengeSecondsRemaining] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -115,6 +117,7 @@ export function RecoveryLifecyclePanel() {
       setChallengeSecondsRemaining(remaining);
       if (remaining === 0) {
         setChallenge(null);
+        setMeteorConnectedAccountId(null);
         setNotice("The signing challenge expired. Prepare a fresh challenge before signing.");
       }
     };
@@ -171,6 +174,7 @@ export function RecoveryLifecyclePanel() {
         expiresAt: Date.now() + Number(result.expiresInSeconds ?? 300) * 1000,
       };
       setChallenge(next);
+      setMeteorConnectedAccountId(null);
       setReplacementAccountId(accountId);
       setNotice(
         `MANDATE verified that ${accountId} has an active FullAccess key. Press the signing button and choose this exact account in Meteor.`,
@@ -183,8 +187,36 @@ export function RecoveryLifecyclePanel() {
     }
   }
 
+  async function connectReplacementAccountToMeteor() {
+    if (busy || !ready || !challenge) return;
+    const signer = signerRef.current;
+    if (!signer) {
+      setError("Meteor signing is not ready. Reload this page and try again.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setMeteorConnectedAccountId(null);
+    try {
+      setNotice(`Connecting MANDATE to the exact replacement account ${challenge.accountId} in Meteor…`);
+      const connectedAccountId = await connectExactMeteorRecoveryAccount(signer, challenge.accountId);
+      setMeteorConnectedAccountId(connectedAccountId);
+      setNotice(`Meteor connected the exact requested account ${connectedAccountId}. You can now request its recovery signature.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Meteor did not connect the requested replacement account.");
+      setNotice("No recovery signature was requested. No recovery process was started.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function signAndStartRecovery() {
     if (busy || !ready || !challenge || challenge.action !== "start") return;
+    if (meteorConnectedAccountId !== challenge.accountId) {
+      setError("Connect the exact replacement account to Meteor before requesting its recovery signature.");
+      return;
+    }
     if (challengeSecondsRemaining <= 0) {
       setChallenge(null);
       setError("The signing challenge expired. Prepare a new one.");
@@ -242,6 +274,7 @@ export function RecoveryLifecyclePanel() {
         expiresAt: Date.now() + Number(result.expiresInSeconds ?? 300) * 1000,
       };
       setChallenge(next);
+      setMeteorConnectedAccountId(null);
       setNotice(
         `The 24-hour delay has elapsed. Press the signing button and authorize ${next.accountId} in Meteor to complete the replacement.`,
       );
@@ -254,6 +287,10 @@ export function RecoveryLifecyclePanel() {
 
   async function signAndFinalizeRecovery() {
     if (busy || !ready || !request || !challenge || challenge.action !== "finalize") return;
+    if (meteorConnectedAccountId !== challenge.accountId) {
+      setError("Connect the exact replacement account to Meteor before requesting its final signature.");
+      return;
+    }
     if (challengeSecondsRemaining <= 0) {
       setChallenge(null);
       setError("The signing challenge expired. Prepare a new one.");
@@ -340,9 +377,15 @@ export function RecoveryLifecyclePanel() {
             <div className="near-transfer-box">
               <p>Challenge expires in <strong>{formatRemaining(challengeSecondsRemaining)}</strong>. The requested account and FullAccess key have been checked again by MANDATE.</p>
               <p>Replacement account: <code>{challenge.accountId}</code></p>
-              <button className="inspect-button" onClick={signAndFinalizeRecovery} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
-                {busy ? "Waiting for Meteor…" : "Sign with this exact account & finalize →"}
-              </button>
+              {meteorConnectedAccountId !== challenge.accountId ? (
+                <button className="outline-button" onClick={connectReplacementAccountToMeteor} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
+                  {busy ? "Connecting to Meteor…" : "Connect this exact account to Meteor →"}
+                </button>
+              ) : (
+                <button className="inspect-button" onClick={signAndFinalizeRecovery} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
+                  {busy ? "Waiting for Meteor…" : "Sign with this exact account & finalize →"}
+                </button>
+              )}
             </div>
           )}
           {secondsRemaining > 0 && (
@@ -387,9 +430,15 @@ export function RecoveryLifecyclePanel() {
             <div className="near-transfer-box">
               <p>MANDATE found the requested account's FullAccess key. The challenge expires in <strong>{formatRemaining(challengeSecondsRemaining)}</strong>.</p>
               <p>Exact requested account: <code>{challenge.accountId}</code></p>
-              <button className="inspect-button" onClick={signAndStartRecovery} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
-                {busy ? "Waiting for Meteor…" : "Open Meteor & sign for this exact account →"}
-              </button>
+              {meteorConnectedAccountId !== challenge.accountId ? (
+                <button className="outline-button" onClick={connectReplacementAccountToMeteor} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
+                  {busy ? "Connecting to Meteor…" : "Connect this exact account to Meteor →"}
+                </button>
+              ) : (
+                <button className="inspect-button" onClick={signAndStartRecovery} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
+                  {busy ? "Waiting for Meteor…" : "Open Meteor & sign for this exact account →"}
+                </button>
+              )}
             </div>
           )}
         </div>
