@@ -49,7 +49,7 @@ describe("account-targeted Meteor recovery signing", () => {
     expect(request.message).toBe(challenge.message);
     expect(request.recipient).toBe(challenge.recipient);
     expect(request.nonce).toBeInstanceOf(Uint8Array);
-    expect(Array.from(request.nonce)).toEqual(Array.from({ length: 32 }, (_, index) => index));
+    expect(Array.from(request.nonce as Uint8Array)).toEqual(Array.from({ length: 32 }, (_, index) => index));
     expect("callbackUrl" in request).toBe(false);
     expect(signed).toEqual({
       accountId: challenge.accountId,
