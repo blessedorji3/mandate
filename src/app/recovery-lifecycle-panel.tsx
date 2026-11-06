@@ -166,12 +166,17 @@ export function RecoveryLifecyclePanel() {
       // Clear only the current browser-to-dApp wallet session before asking
       // the owner to connect again. This calls the normal connector sign-out;
       // it does not revoke any MANDATE database wallet link or NEAR on-chain key.
+      let currentWallet: Awaited<ReturnType<typeof connector.getConnectedWallet>> | null = null;
       try {
-        const current = await connector.getConnectedWallet();
-        setNotice("Disconnecting the current browser wallet session. Your existing MANDATE wallet registration remains active…");
-        await connector.disconnect(current.wallet);
+        currentWallet = await connector.getConnectedWallet();
       } catch {
-        // There may be no current wallet session. Continue to the normal picker.
+        // There may be no current browser wallet session.
+      }
+      if (currentWallet) {
+        setNotice("Disconnecting the current browser wallet session. Your existing MANDATE wallet registration remains active…");
+        // If sign-out fails, stop instead of layering a new connection over an
+        // unknown old session.
+        await connector.disconnect(currentWallet.wallet);
       }
 
       setNotice("Opening the normal NEAR Testnet wallet selector. Choose Meteor Wallet (or another Testnet wallet), then select the replacement account inside your wallet.");
@@ -226,6 +231,7 @@ export function RecoveryLifecyclePanel() {
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Wallet connection was cancelled or failed.");
+      if (!request) setRecoveryMode(false);
       setNotice("No recovery challenge was prepared and no recovery process was started.");
     } finally {
       setBusy(false);
