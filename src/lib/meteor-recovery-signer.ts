@@ -1,7 +1,7 @@
 import type { MeteorWallet } from "@meteorwallet/sdk";
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 
-export type MeteorRecoverySigner = Pick<MeteorWallet, "signMessage">;
+export type MeteorRecoverySigner = Pick<MeteorWallet, "requestSignIn" | "signMessage">;
 
 export type MeteorRecoveryChallenge = {
   accountId: string;
@@ -47,6 +47,32 @@ export async function createMeteorRecoverySigner(): Promise<MeteorRecoverySigner
     networkId: "testnet",
     keyStore: new BrowserLocalStorageKeyStore(window.localStorage, "_meteor_wallet"),
   });
+}
+
+/**
+ * Establish the dApp-to-wallet connection before asking Meteor to sign.
+ * Meteor's V1 SDK requires this separate sign-in action; a NEP-413 request
+ * alone does not create an external-app account connection.
+ *
+ * Meteor displays its account picker. MANDATE accepts only the exact account
+ * requested by the server challenge and refuses to proceed on any mismatch.
+ */
+export async function connectExactMeteorRecoveryAccount(
+  signer: MeteorRecoverySigner,
+  expectedAccountId: string,
+): Promise<string> {
+  const response = await signer.requestSignIn({});
+  if (!response.success) {
+    throw new Error(response.message || "Meteor did not connect an account to MANDATE.");
+  }
+
+  const connectedAccountId = response.payload.accountId;
+  if (connectedAccountId !== expectedAccountId) {
+    throw new Error(
+      `Meteor connected ${connectedAccountId || "an unidentified account"}, not the requested replacement account ${expectedAccountId}. No recovery signature was requested.`,
+    );
+  }
+  return connectedAccountId;
 }
 
 /**
