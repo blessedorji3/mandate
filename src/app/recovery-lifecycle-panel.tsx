@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeNearSignedMessage } from "@/lib/near-signed-message";
 import { useNearWalletConnector } from "@/app/near-wallet-connector-context";
+import {
+  uniqueConnectedAccountIds,
+  validateReplacementWalletSelection,
+} from "@/lib/recovery-wallet-selection";
 
 type RecoveryRequest = {
   id: string;
@@ -188,11 +192,7 @@ export function RecoveryLifecyclePanel() {
       await connector.connect();
 
       const connected = await connector.getConnectedWallet();
-      const accountIds = [...new Set(
-        connected.accounts
-          .map(account => account.accountId)
-          .filter((accountId): accountId is string => typeof accountId === "string" && accountId.length > 0),
-      )];
+      const accountIds = uniqueConnectedAccountIds(connected.accounts);
 
       if (accountIds.length === 0) {
         throw new Error("The wallet connection completed without returning a Testnet account.");
@@ -260,12 +260,13 @@ export function RecoveryLifecyclePanel() {
       setError("The selected wallet account is not a valid NEAR Testnet account.");
       return;
     }
-    if (!validTestnetAccount(accountId)) {
-      setError("The selected wallet account is not a valid NEAR Testnet account.");
-      return;
-    }
-    if (activeWalletAccountIds.includes(accountId)) {
-      setError("The replacement must be different from every currently active MANDATE wallet.");
+    const selectionError = validateReplacementWalletSelection({
+      accountId,
+      connectedAccountIds: connectedAccounts,
+      activeWalletAccountIds,
+    });
+    if (selectionError) {
+      setError(selectionError);
       return;
     }
     if (!/^MND-[0-9A-F]{64}$/.test(recoveryCode.trim().toUpperCase())) {
@@ -382,9 +383,14 @@ export function RecoveryLifecyclePanel() {
 
   async function prepareFinalizeRecovery() {
     if (busy || !ready || !connector || !request || secondsRemaining > 0) return;
-    if (selectedReplacementAccountId !== request.newAccountId ||
-        !connectedAccounts.includes(request.newAccountId)) {
-      setError("Reconnect the replacement wallet through the normal wallet selector and choose the recorded replacement account first.");
+    const selectionError = validateReplacementWalletSelection({
+      accountId: selectedReplacementAccountId,
+      connectedAccountIds: connectedAccounts,
+      activeWalletAccountIds,
+      expectedAccountId: request.newAccountId,
+    });
+    if (selectionError) {
+      setError(selectionError);
       return;
     }
 
@@ -442,9 +448,15 @@ export function RecoveryLifecyclePanel() {
   if (!hasHistory) return null;
 
   const selectedAccountIsActive = activeWalletAccountIds.includes(selectedReplacementAccountId);
-  const selectedAccountIsExpected = request
-    ? selectedReplacementAccountId === request.newAccountId
-    : Boolean(selectedReplacementAccountId) && !selectedAccountIsActive;
+  const selectedAccountSelectionError = selectedReplacementAccountId
+    ? validateReplacementWalletSelection({
+        accountId: selectedReplacementAccountId,
+        connectedAccountIds: connectedAccounts,
+        activeWalletAccountIds,
+        expectedAccountId: request?.newAccountId,
+      })
+    : "Connect a replacement wallet and select an account first.";
+  const selectedAccountIsExpected = selectedAccountSelectionError === null;
 
   return (
     <section className="panel recovery-code-panel recovery-lifecycle-panel">
