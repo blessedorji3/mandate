@@ -310,7 +310,7 @@ export function NearWalletPanel({
   async function revokeSelectedWallet() {
     const connector = connectorRef.current;
     const targetAccountId = walletToRevoke;
-    if (!connector || !accountId || !walletRegistered || !targetAccountId ||
+    if (recoveryMode || !connector || !accountId || !walletRegistered || !targetAccountId ||
         targetAccountId === accountId || busy) return;
     setBusy(true);
     setError("");
@@ -354,7 +354,7 @@ export function NearWalletPanel({
 
   async function reviewCounterpartyRisk() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || !proposalId ||
+    if (recoveryMode || !connector || !accountId || !walletRegistered || !proposalId ||
         !riskReviewRequired || busy || riskReviewed || txHash) return;
     setBusy(true);
     setError("");
@@ -442,7 +442,7 @@ export function NearWalletPanel({
 
   async function executeTestTransfer() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || busy || txHash ||
+    if (recoveryMode || !connector || !accountId || !walletRegistered || busy || txHash ||
         (riskReviewRequired && !riskReviewed)) return;
     setBusy(true);
     setError("");
@@ -540,6 +540,11 @@ export function NearWalletPanel({
         <span className="muted-tag">TESTNET ONLY</span>
       </div>
       <div className="near-wallet-network"><span className="live-dot" /> NEAR TESTNET <span>·</span> Wallet-controlled signing</div>
+      {recoveryMode && (
+        <p className="near-wallet-notice" role="status">
+          Wallet replacement mode is active. Normal registration, wallet removal and transfer actions are paused while you select and verify the replacement wallet.
+        </p>
+      )}
       {accountId ? (
         <div className="near-wallet-connected">
           <span className="near-wallet-check">✓</span>
@@ -587,7 +592,7 @@ export function NearWalletPanel({
                     <option key={wallet.accountId} value={wallet.accountId}>{wallet.accountId}</option>
                   ))}
                 </select>
-                <button className="outline-button wallet-revoke-button" onClick={revokeSelectedWallet} disabled={busy || !walletRegistered || !walletToRevoke}>
+                <button className="outline-button wallet-revoke-button" onClick={revokeSelectedWallet} disabled={recoveryMode || busy || !walletRegistered || !walletToRevoke}>
                   {busy ? "Please wait…" : "Verify & remove selected wallet"}
                 </button>
               </div>
@@ -619,7 +624,7 @@ export function NearWalletPanel({
         <div className="near-transfer-box">
           <strong>Counterparty risk acknowledgement required</strong>
           <p>The destination received a WARN result. Your NEP-413 signature acknowledges this exact proposal and its current evidence fingerprint. It does not change WARN to ALLOW and does not approve a transaction.</p>
-          <button className="inspect-button" onClick={reviewCounterpartyRisk} disabled={busy || !proposalId || Boolean(txHash)}>
+          <button className="inspect-button" onClick={reviewCounterpartyRisk} disabled={recoveryMode || busy || !proposalId || Boolean(txHash)}>
             {busy ? "Preparing review…" : "Review warning & sign acknowledgement →"}
           </button>
           <p className="near-wallet-notice" role="status">The acknowledgement expires after five minutes and can be used once. A fresh risk check is required before authorization.</p>
@@ -635,7 +640,7 @@ export function NearWalletPanel({
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed || (riskReviewRequired && !riskReviewed)}>
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={recoveryMode || busy || !walletRegistered || Boolean(txHash) || authorizationConsumed || (riskReviewRequired && !riskReviewed)}>
             {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : riskReviewRequired && !riskReviewed ? "Complete signed risk review first" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
