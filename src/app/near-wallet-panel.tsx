@@ -148,12 +148,13 @@ export function NearWalletPanel({
 
   useEffect(() => {
     let active = true;
-    const connector = sharedConnector;
-    if (!connector) {
+    const shared = sharedConnector;
+    if (!shared) {
       connectorRef.current = null;
       setReady(false);
       return;
     }
+    const connector: NearConnector = shared;
 
     connectorRef.current = connector;
     const handleSignIn = (event: { accounts: Account[] }) => {
