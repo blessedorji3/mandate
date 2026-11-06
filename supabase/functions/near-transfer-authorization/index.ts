@@ -1,4 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
+import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
+import { fingerprintCounterpartyRisk } from "../../../src/security/counterparty-risk-review.ts";
 import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413, verifyNep413WithOptionalCallback } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
@@ -7,6 +9,7 @@ const SECRET_KEYS = Deno.env.get("SUPABASE_SECRET_KEYS");
 let SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 try { if (SECRET_KEYS) SERVICE_KEY = JSON.parse(SECRET_KEYS).default ?? SERVICE_KEY; } catch { /* retain legacy service role key */ }
 const APP_RECIPIENT = "mandate-snowy.vercel.app";
+type MandateSupabaseClient = ReturnType<typeof createClient<any>>;
 const TEST_TRANSFER = {
   network: "testnet",
   receiverId: "confirmwithmandate.testnet",
@@ -21,6 +24,8 @@ const ALLOWED_ORIGINS = new Set([
   "https://mandate-git-feat-owner-signed-near-approval-web3pass.vercel.app",
   "https://mandate-git-feat-wallet-connection-ux-web3pass.vercel.app",
   "https://mandate-git-feat-recovery-code-reset-web3pass.vercel.app",
+  "https://mandate-git-feat-phase-2-counterparty-risk-web3pass.vercel.app",
+  "https://mandate-pxz0pxb8e-web3pass.vercel.app",
   "https://mandate-git-fix-recovery-reset-explicit-callback-url-web3pass.vercel.app",
   "https://mandate-jckxw5flf-web3pass.vercel.app",
   "https://mandate-jdzunl9rx-web3pass.vercel.app",
@@ -80,6 +85,23 @@ function borshString(value: string) {
   const bytes = encoder.encode(value);
   return concat(u32(bytes.length), bytes);
 }
+
+// Meteor Wallet's NEP-413 flow has a known compatibility constraint: keep
+// signed review challenges ASCII-only. Normalize external warning text before
+// including it in the message; the exact sanitized message is then stored in
+// the one-time challenge and verified by the server.
+function meteorSafeAsciiText(value: string, maxLength: number): string {
+  return value.normalize("NFKD")
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, "...")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
 function nep413Bytes(message: string, nonce: Uint8Array, recipient: string, callbackUrl?: string) {
   if (nonce.length !== 32) throw new Error("NEP-413 nonce must be 32 bytes");
   if (callbackUrl !== undefined && (!/^https:\/\//.test(callbackUrl) || callbackUrl.length > 2048)) throw new Error("Invalid NEP-413 callback URL");
@@ -105,12 +127,12 @@ function trustedCallbackUrl(req: Request, requestedUrl: unknown): string {
   return requestedUrl;
 }
 async function sha256(bytes: Uint8Array) {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer as ArrayBuffer));
 }
 async function authenticate(req: Request) {
   const authorization = req.headers.get("authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) return null;
-  const userClient = createClient(PROJECT_URL, ANON_KEY, {
+  const userClient = createClient<any>(PROJECT_URL, ANON_KEY, {
     global: { headers: { Authorization: authorization } },
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -118,7 +140,7 @@ async function authenticate(req: Request) {
   if (error || !data.user) return null;
   return data.user;
 }
-async function getPolicy(admin: ReturnType<typeof createClient>, ownerId: string) {
+async function getPolicy(admin: MandateSupabaseClient, ownerId: string) {
   const { data, error } = await admin.from("security_policies")
     .select("id, version, active, max_amount_atomic, allowed_recipients, allowed_action_types, require_approval_for_token_approvals, require_approval_for_all_actions")
     .eq("owner_id", ownerId).eq("active", true)
@@ -199,8 +221,23 @@ async function rpcViewAccessKeys(accountId: string) {
   if (!Array.isArray(result.keys)) throw new Error("Could not verify NEAR account access keys");
   return result.keys as Array<{ public_key: string; access_key: { permission: unknown } }>;
 }
+class TransferVerificationRejected extends Error {
+  constructor(message: string, readonly code = "TRANSACTION_DOES_NOT_MATCH_AUTHORIZATION") {
+    super(message);
+    this.name = "TransferVerificationRejected";
+  }
+}
+
 async function verifyOnChainTransfer(transactionHash: string, signerAccountId: string) {
-  if (base58Decode(transactionHash).length !== 32) throw new Error("Invalid NEAR transaction hash");
+  let decodedTransactionHash: Uint8Array;
+  try {
+    decodedTransactionHash = base58Decode(transactionHash);
+  } catch {
+    throw new TransferVerificationRejected("Invalid NEAR transaction hash");
+  }
+  if (decodedTransactionHash.length !== 32) {
+    throw new TransferVerificationRejected("Invalid NEAR transaction hash");
+  }
   const result = await nearTestnetRpc({
     jsonrpc: "2.0", id: "mandate-verify-transfer", method: "tx",
     params: { tx_hash: transactionHash, sender_account_id: signerAccountId, wait_until: "FINAL" },
@@ -209,12 +246,15 @@ async function verifyOnChainTransfer(transactionHash: string, signerAccountId: s
   if (!tx || tx.hash !== transactionHash || tx.signer_id !== signerAccountId ||
       tx.receiver_id !== TEST_TRANSFER.receiverId || !Array.isArray(tx.actions) ||
       tx.actions.length !== 1 || tx.actions[0]?.Transfer?.deposit !== TEST_TRANSFER.amountAtomic) {
-    throw new Error("On-chain transaction does not match the exact MANDATE-authorized transfer");
+    throw new TransferVerificationRejected("On-chain transaction does not match the exact MANDATE-authorized transfer");
   }
   const status = result.status;
   if (result.final_execution_status !== "FINAL" || !status || typeof status !== "object" ||
       !("SuccessValue" in status || "SuccessReceiptId" in status) || "Failure" in status) {
-    throw new Error("The NEAR Testnet transaction did not complete successfully");
+    throw new TransferVerificationRejected(
+      "The NEAR Testnet transaction did not complete successfully",
+      "TRANSACTION_NOT_FINAL_SUCCESS",
+    );
   }
   const blockHash = result.transaction_outcome?.block_hash;
   if (typeof blockHash !== "string" || base58Decode(blockHash).length !== 32) {
@@ -251,6 +291,50 @@ function proposalId() {
   return "near-test-" + crypto.randomUUID();
 }
 
+async function assessCounterpartyRiskForTarget(
+  admin: MandateSupabaseClient,
+  ownerId: string,
+  targetAccountId: string,
+  excludeProposalId?: string,
+) {
+  return assessCounterpartyRisk(ownerId, targetAccountId, {
+    findBlocklistRecord: async (network, accountId) => {
+      const lookup = await admin.rpc("lookup_counterparty_blocklist", {
+        p_network: network,
+        p_account_id: accountId,
+      });
+      if (lookup.error) throw new Error("Counterparty blocklist lookup is unavailable.");
+      return Array.isArray(lookup.data) ? lookup.data[0] ?? null : lookup.data ?? null;
+    },
+    excludeProposalId,
+    countPreviousInteractions: async (authenticatedOwnerId, _network, accountId, excludeId) => {
+      let resultQuery = admin.from("authorization_decisions")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_id", authenticatedOwnerId)
+        .filter("proposal->>target", "eq", accountId);
+      if (excludeId) resultQuery = resultQuery.neq("proposal_id", excludeId);
+      const result = await resultQuery;
+      if (result.error || result.count === null) {
+        throw new Error("Owner-scoped counterparty history is unavailable.");
+      }
+      return result.count;
+    },
+  });
+}
+
+async function assessCurrentCounterpartyRisk(
+  admin: MandateSupabaseClient,
+  ownerId: string,
+  excludeProposalId?: string,
+) {
+  return assessCounterpartyRiskForTarget(
+    admin,
+    ownerId,
+    TEST_TRANSFER.receiverId,
+    excludeProposalId,
+  );
+}
+
 export async function handleRequest(req: Request) {
   const origin = req.headers.get("origin") ?? "";
   const reply = (body: unknown, status = 200) => json(body, status, origin);
@@ -262,7 +346,7 @@ export async function handleRequest(req: Request) {
   }
   const user = await authenticate(req);
   if (!user) return reply({ error: "Sign in to MANDATE before authorizing a transfer." }, 401);
-  const admin = createClient(PROJECT_URL, SERVICE_KEY, {
+  const admin = createClient<any>(PROJECT_URL, SERVICE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
@@ -277,6 +361,61 @@ export async function handleRequest(req: Request) {
   if (!isRecord(body) || typeof body.action !== "string") return reply({ error: "An action is required." }, 400);
 
   try {
+    if (body.action === "counterparty_inspect") {
+      const proposal = body.proposal;
+      if (!isRecord(proposal) ||
+          typeof proposal.id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(proposal.id) ||
+          (proposal.agentId !== undefined &&
+            (typeof proposal.agentId !== "string" || proposal.agentId.length < 1 || proposal.agentId.length > 128)) ||
+          typeof proposal.actionType !== "string" ||
+          !["transfer", "token_approval", "swap", "contract_call"].includes(proposal.actionType) ||
+          typeof proposal.asset !== "string" || proposal.asset.length < 1 || proposal.asset.length > 32 ||
+          typeof proposal.amountAtomic !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(proposal.amountAtomic) ||
+          typeof proposal.target !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(proposal.target) ||
+          proposal.network !== "testnet" ||
+          (proposal.protocol !== undefined &&
+            (typeof proposal.protocol !== "string" || proposal.protocol.length < 1 || proposal.protocol.length > 128)) ||
+          (proposal.approvalAmountAtomic !== undefined &&
+            (typeof proposal.approvalAmountAtomic !== "string" ||
+              !/^(0|[1-9][0-9]{0,77})$/.test(proposal.approvalAmountAtomic)))) {
+        return reply({ error: "A valid NEAR Testnet proposal is required for counterparty inspection." }, 400);
+      }
+
+      const policy = await getPolicy(admin, user.id);
+      if (!policy) return reply({ error: "Create and activate a security policy before inspecting a counterparty." }, 409);
+      const riskAssessment = await assessCounterpartyRiskForTarget(
+        admin,
+        user.id,
+        proposal.target,
+      );
+      const proposalForFingerprint = {
+        id: proposal.id,
+        ...(typeof proposal.agentId === "string" ? { agentId: proposal.agentId } : {}),
+        actionType: proposal.actionType,
+        asset: proposal.asset,
+        amountAtomic: proposal.amountAtomic,
+        target: proposal.target,
+        network: "testnet",
+        ...(typeof proposal.protocol === "string" ? { protocol: proposal.protocol } : {}),
+        ...(typeof proposal.approvalAmountAtomic === "string"
+          ? { approvalAmountAtomic: proposal.approvalAmountAtomic }
+          : {}),
+      };
+      const counterpartyRiskFingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposal: proposalForFingerprint,
+        risk: riskAssessment.decision,
+      });
+      return reply({
+        risk: riskAssessment.decision,
+        riskCollection: riskAssessment.collection,
+        counterpartyRiskFingerprint,
+        policy: { id: policy.id, version: policy.version },
+      });
+    }
+
     if (body.action === "wallet_list") {
       const { data, error } = await admin.rpc("list_near_owner_wallets_v1", {
         p_owner_id: user.id,
@@ -896,6 +1035,371 @@ export async function handleRequest(req: Request) {
       return reply({ registered: true, accountId: challenge.account_id, publicKey: signedMessage.publicKey });
     }
 
+
+    if (body.action === "blocklist_report_submit") {
+      const accountId = body.accountId;
+      const reason = body.reason;
+      const evidenceRef = body.evidenceRef;
+      const sourceType = body.sourceType;
+      const evidenceSha256 = body.evidenceSha256 ?? null;
+      if (typeof accountId !== "string" || !/^[a-z0-9]+(?:[-_][a-z0-9]+)*(?:\.[a-z0-9]+(?:[-_][a-z0-9]+)*)*\.testnet$/.test(accountId) ||
+          typeof reason !== "string" || reason.trim().length < 8 || reason.length > 500 ||
+          typeof evidenceRef !== "string" || evidenceRef.trim().length < 8 || evidenceRef.length > 2048 ||
+          !["chain_tx", "explorer", "security_advisory", "other"].includes(String(sourceType)) ||
+          (evidenceSha256 !== null && (typeof evidenceSha256 !== "string" || !/^[0-9a-f]{64}$/.test(evidenceSha256)))) {
+        return reply({ error: "A Testnet account, reason, evidence reference and valid source type are required." }, 400);
+      }
+      let validEvidenceRef = false;
+      try {
+        const parsed = new URL(evidenceRef);
+        validEvidenceRef = parsed.protocol === "https:" && parsed.username === "" && parsed.password === "";
+      } catch {
+        validEvidenceRef = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{32,44}$/.test(evidenceRef);
+      }
+      if (!validEvidenceRef) return reply({ error: "Evidence must be an HTTPS reference or a NEAR transaction hash." }, 400);
+
+      const { data: reportId, error } = await admin.rpc("submit_counterparty_blocklist_report_v1", {
+        p_reporter_owner_id: user.id,
+        p_network: "testnet",
+        p_account_id: accountId,
+        p_reason: reason.trim(),
+        p_evidence_ref: evidenceRef.trim(),
+        p_evidence_sha256: evidenceSha256,
+        p_source_type: sourceType,
+      });
+      if (error || typeof reportId !== "string") {
+        return reply({ error: "The report could not be submitted. Check the evidence and submission limit." }, 409);
+      }
+      return reply({
+        submitted: true,
+        reportId,
+        status: "pending",
+        message: "Report submitted as pending evidence. It is not a BLOCK until an independent reviewer confirms it.",
+      }, 201);
+    }
+
+    if (body.action === "blocklist_review_queue") {
+      const { data, error } = await admin.rpc("list_counterparty_blocklist_review_queue_v1", {
+        p_actor_owner_id: user.id,
+      });
+      if (error) {
+        return reply({ error: "An active blocklist reviewer or administrator role is required." }, 403);
+      }
+      return reply({ reports: Array.isArray(data) ? data : [] });
+    }
+
+    if (body.action === "blocklist_report_review") {
+      const reportId = body.reportId;
+      const decision = body.decision;
+      const reviewNote = body.reviewNote;
+      if (typeof reportId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reportId) ||
+          !["confirmed", "rejected"].includes(String(decision)) ||
+          typeof reviewNote !== "string" || reviewNote.trim().length < 8 || reviewNote.length > 500) {
+        return reply({ error: "A report ID, confirmation/rejection decision and review note are required." }, 400);
+      }
+      const { data, error } = await admin.rpc("review_counterparty_blocklist_report_v1", {
+        p_reviewer_owner_id: user.id,
+        p_report_id: reportId,
+        p_decision: decision,
+        p_review_note: reviewNote.trim(),
+      });
+      if (error || data !== true) {
+        return reply({
+          error: "The review was rejected. An active reviewer/admin role and a report submitted by another owner are required.",
+        }, 403);
+      }
+      return reply({
+        reviewed: true,
+        reportId,
+        decision,
+        message: "Decision recorded with an append-only audit event. A confirmed report becomes a non-overridable BLOCK.",
+      });
+    }
+
+    if (body.action === "blocklist_reviewer_provision") {
+      const subjectOwnerId = body.subjectOwnerId;
+      const action = body.provisioningAction;
+      const reason = body.reason;
+      if (typeof subjectOwnerId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subjectOwnerId) ||
+          !["grant", "revoke"].includes(String(action)) ||
+          typeof reason !== "string" || reason.trim().length < 8 || reason.length > 500) {
+        return reply({ error: "A valid account ID, grant/revoke action and reason are required." }, 400);
+      }
+      const { data: roleId, error } = await admin.rpc("provision_counterparty_blocklist_reviewer_v1", {
+        p_actor_owner_id: user.id,
+        p_subject_owner_id: subjectOwnerId,
+        p_action: action,
+        p_reason: reason.trim(),
+      });
+      if (error || typeof roleId !== "string") {
+        return reply({ error: "Reviewer provisioning failed. Only an active administrator can grant or revoke reviewer roles." }, 403);
+      }
+      return reply({ provisioned: action === "grant", revoked: action === "revoke", roleId, subjectOwnerId });
+    }
+
+    if (body.action === "blocklist_audit") {
+      const limit = body.limit === undefined ? 100 : body.limit;
+      if (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 200) {
+        return reply({ error: "Audit page size must be between 1 and 200." }, 400);
+      }
+      const { data, error } = await admin.rpc("list_counterparty_blocklist_audit_v1", {
+        p_actor_owner_id: user.id,
+        p_limit: limit,
+      });
+      if (error) return reply({ error: "Only an active blocklist administrator can read global audit history." }, 403);
+      return reply({ events: Array.isArray(data) ? data : [] });
+    }
+
+    if (body.action === "risk_review_challenge") {
+      const proposalIdValue = body.proposalId;
+      const signerAccountId = body.signerAccountId;
+      if (typeof proposalIdValue !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(proposalIdValue) ||
+          typeof signerAccountId !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(signerAccountId)) {
+        return reply({ error: "A valid inspected proposal and registered Testnet wallet are required." }, 400);
+      }
+
+      const { data: signerRows, error: signerError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: signerAccountId,
+      });
+      const signerWallet = Array.isArray(signerRows) ? signerRows[0] : null;
+      if (signerError || !signerWallet?.public_key) {
+        return reply({ error: "Register and verify this wallet before signing a counterparty risk review." }, 403);
+      }
+      const policy = await getPolicy(admin, user.id);
+      if (!policy) return reply({ error: "An active security policy is required." }, 409);
+      const { data: inspected, error: inspectedError } = await admin.from("authorization_decisions")
+        .select("proposal_id, policy_id, policy_version, outcome, proposal")
+        .eq("owner_id", user.id).eq("proposal_id", proposalIdValue).maybeSingle();
+      if (inspectedError || !inspected || inspected.policy_id !== policy.id ||
+          inspected.policy_version !== policy.version || inspected.outcome !== "REQUIRE_APPROVAL" ||
+          !isRecord(inspected.proposal) || !isRecord(inspected.proposal.counterpartyRisk) ||
+          inspected.proposal.counterpartyRisk.outcome !== "WARN" ||
+          inspected.proposal.id !== inspected.proposal_id ||
+          inspected.proposal.actionType !== "transfer" ||
+          inspected.proposal.asset !== "NEAR" ||
+          inspected.proposal.amountAtomic !== TEST_TRANSFER.amountAtomic ||
+          inspected.proposal.target !== TEST_TRANSFER.receiverId ||
+          inspected.proposal.network !== TEST_TRANSFER.network ||
+          typeof inspected.proposal.counterpartyRiskFingerprint !== "string" ||
+          !/^[0-9a-f]{64}$/.test(inspected.proposal.counterpartyRiskFingerprint)) {
+        return reply({ error: "Only an exact, currently recorded WARN proposal can be reviewed." }, 409);
+      }
+
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, proposalIdValue);
+      if (currentRisk.decision.outcome !== "WARN") {
+        return reply({
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is BLOCK. BLOCK cannot be overridden by owner review."
+            : "The risk state changed. Inspect the proposal again before reviewing it.",
+          risk: currentRisk.decision,
+        }, 409);
+      }
+      const fingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposal: inspected.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (fingerprint !== inspected.proposal.counterpartyRiskFingerprint) {
+        return reply({ error: "Counterparty evidence changed since inspection. Inspect again; this review challenge was not created." }, 409);
+      }
+
+      const challengeId = crypto.randomUUID();
+      const nonceHex = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const warningReasons = Array.isArray(inspected.proposal.counterpartyRisk.reasons)
+        ? inspected.proposal.counterpartyRisk.reasons
+            .filter((reason: unknown): reason is string => typeof reason === "string")
+            .slice(0, 4)
+            .map((reason: string) => meteorSafeAsciiText(reason, 150))
+            .filter((reason: string) => reason.length > 0)
+        : [];
+      if (warningReasons.length === 0) {
+        warningReasons.push("Counterparty evidence requires owner review.");
+      }
+      const message = [
+        "MANDATE COUNTERPARTY RISK REVIEW",
+        "I acknowledge the counterparty risk warning for this exact proposal. This is not transaction approval and does not move funds.",
+        "Network: NEAR Testnet",
+        `Owner: ${user.id}`,
+        `Proposal: ${inspected.proposal_id}`,
+        `Counterparty: ${TEST_TRANSFER.receiverId}`,
+        `Policy: ${policy.id} version ${policy.version}`,
+        `Risk evidence fingerprint: ${fingerprint}`,
+        "Decision: WARN - owner review required",
+        `Warning reasons: ${warningReasons.join(" | ")}`,
+        "Owner acknowledgement: I have read these reasons and accept this counterparty risk for this proposal only.",
+        `Signer wallet: ${signerAccountId}`,
+        `Challenge: ${challengeId}`,
+        `Nonce: ${nonceHex}`,
+      ].join("\n");
+      if (!/^[\x20-\x7E\r\n]*$/.test(message)) {
+        return reply({ error: "The risk-review message could not be prepared in the supported wallet-safe format." }, 500);
+      }
+      const { error: createError } = await admin.rpc("create_counterparty_risk_review_challenge_v1", {
+        p_owner_id: user.id,
+        p_id: challengeId,
+        p_proposal_id: inspected.proposal_id,
+        p_policy_id: policy.id,
+        p_policy_version: policy.version,
+        p_target_account_id: TEST_TRANSFER.receiverId,
+        p_risk_fingerprint: fingerprint,
+        p_signer_account_id: signerAccountId,
+        p_signer_public_key: signerWallet.public_key,
+        p_nonce_hex: nonceHex,
+        p_message: message,
+      });
+      if (createError) return reply({ error: "Could not create a safe, proposal-bound review challenge." }, 409);
+      return reply({
+        challengeId, message, nonceHex, recipient: APP_RECIPIENT,
+        signerAccountId, riskFingerprint: fingerprint, expiresInSeconds: 300,
+      });
+    }
+
+    if (body.action === "risk_review_verify") {
+      const challengeId = body.challengeId;
+      const signed = body.signedMessage;
+      if (typeof challengeId !== "string" || !isRecord(signed) ||
+          typeof signed.accountId !== "string" || typeof signed.publicKey !== "string" ||
+          typeof signed.signature !== "string") {
+        return reply({ error: "A valid NEP-413 owner risk-review signature is required." }, 400);
+      }
+      const { data: challengeRows, error: challengeError } = await admin.rpc(
+        "get_counterparty_risk_review_challenge_v1",
+        { p_owner_id: user.id, p_id: challengeId },
+      );
+      const challenge = Array.isArray(challengeRows) ? challengeRows[0] : null;
+      if (challengeError || !challenge) return reply({ error: "Risk-review challenge expired, missing, or already used." }, 409);
+      if (signed.accountId !== challenge.signer_account_id ||
+          signed.publicKey !== challenge.signer_public_key) {
+        return reply({ error: "The signed wallet does not match the wallet bound to this review challenge." }, 403);
+      }
+
+      const { data: walletRows, error: walletError } = await admin.rpc("get_near_owner_wallet_v1", {
+        p_owner_id: user.id, p_account_id: signed.accountId,
+      });
+      const registeredWallet = Array.isArray(walletRows) ? walletRows[0] : null;
+      if (walletError || !registeredWallet || registeredWallet.public_key !== signed.publicKey) {
+        return reply({ error: "This signing key is not an active verified wallet on this MANDATE account." }, 403);
+      }
+      const accessKeys = await rpcViewAccessKeys(signed.accountId);
+      if (!findActiveFullAccessKey(accessKeys, signed.publicKey)) {
+        return reply({ error: "The reviewing wallet key is no longer an active FullAccess key." }, 403);
+      }
+      // Browser wallets may bind callback_url to the full dApp page URL,
+      // while injected/mobile wallet adapters may sign only the origin or
+      // NEP-413 Option::None. The client-supplied URL is not trusted: validate
+      // HTTPS, exact canonical URL, and equality with this already-allowlisted
+      // request origin before testing it as a signed payload variant.
+      let requestedCallbackUrl = origin;
+      if (body.callbackUrl !== undefined) {
+        try {
+          requestedCallbackUrl = trustedCallbackUrl(req, body.callbackUrl);
+        } catch {
+          return reply({ error: "The signed-message callback URL must be a canonical HTTPS URL on this MANDATE origin." }, 400);
+        }
+      }
+      const nonceBytes = fromHex(challenge.nonce_hex);
+      const pageCallbackValid = await verifyNep413(
+        challenge.message, nonceBytes, APP_RECIPIENT,
+        signed.publicKey, signed.signature, requestedCallbackUrl,
+      );
+      const originCallbackValid = requestedCallbackUrl === origin
+        ? pageCallbackValid
+        : await verifyNep413(
+            challenge.message, nonceBytes, APP_RECIPIENT,
+            signed.publicKey, signed.signature, origin,
+          );
+      const noCallbackValid = await verifyNep413(
+        challenge.message, nonceBytes, APP_RECIPIENT,
+        signed.publicKey, signed.signature,
+      );
+      const signatureValid = pageCallbackValid || originCallbackValid || noCallbackValid;
+
+      // Safe diagnostics only: never log the challenge text, nonce, signature,
+      // key, or owner identity. This identifies the connector path and the
+      // exact standards-compliant NEP-413 callback form that verifies.
+      const adapterId = typeof body.walletAdapterId === "string" &&
+          /^[a-z0-9_-]{1,64}$/i.test(body.walletAdapterId)
+        ? body.walletAdapterId
+        : "unknown";
+      let signatureBytes = 0;
+      try { signatureBytes = base64Decode(signed.signature).length; } catch { /* record zero */ }
+      console.warn("[MANDATE][risk-review-nep413]", JSON.stringify({
+        adapterId,
+        callbackPageValid: pageCallbackValid,
+        callbackOriginValid: originCallbackValid,
+        callbackOmittedValid: noCallbackValid,
+        callbackUrlProvided: typeof body.callbackUrl === "string",
+        signerMatchesChallenge: signed.accountId === challenge.signer_account_id &&
+          signed.publicKey === challenge.signer_public_key,
+        signatureBytes,
+        messageBytes: encoder.encode(challenge.message).length,
+        nonceBytes: nonceBytes.length,
+      }));
+      if (!signatureValid) return reply({ error: "NEP-413 counterparty review signature verification failed." }, 403);
+
+      const policy = await getPolicy(admin, user.id);
+      if (!policy || policy.id !== challenge.policy_id || policy.version !== challenge.policy_version) {
+        return reply({ error: "The active policy changed. Inspect and review the proposal again." }, 409);
+      }
+      const { data: inspected, error: inspectedError } = await admin.from("authorization_decisions")
+        .select("proposal_id, policy_id, policy_version, outcome, proposal")
+        .eq("owner_id", user.id).eq("proposal_id", challenge.proposal_id).maybeSingle();
+      if (inspectedError || !inspected || inspected.outcome !== "REQUIRE_APPROVAL" ||
+          inspected.policy_id !== policy.id || inspected.policy_version !== policy.version ||
+          !isRecord(inspected.proposal) || !isRecord(inspected.proposal.counterpartyRisk) ||
+          inspected.proposal.counterpartyRisk.outcome !== "WARN" ||
+          inspected.proposal.counterpartyRiskFingerprint !== challenge.risk_fingerprint) {
+        return reply({ error: "The proposal or risk record changed. The owner review cannot be completed." }, 409);
+      }
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, challenge.proposal_id);
+      if (currentRisk.decision.outcome !== "WARN") {
+        return reply({
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is now BLOCK. BLOCK cannot be overridden by owner review."
+            : "The risk state changed. Inspect the proposal again before continuing.",
+          risk: currentRisk.decision,
+        }, 409);
+      }
+      const fingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposal: inspected.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (fingerprint !== challenge.risk_fingerprint) {
+        return reply({ error: "Counterparty evidence changed. The review is stale and cannot be accepted." }, 409);
+      }
+      const { data: reviewId, error: completeError } = await admin.rpc("complete_counterparty_risk_review_v1", {
+        p_owner_id: user.id,
+        p_id: challenge.id,
+        p_wallet_signature: signed.signature,
+      });
+      if (completeError || typeof reviewId !== "string") {
+        return reply({ error: "The signed review could not be recorded. No action is authorized." }, 409);
+      }
+      return reply({
+        reviewed: true,
+        reviewId,
+        proposalId: challenge.proposal_id,
+        riskFingerprint: challenge.risk_fingerprint,
+        expiresInSeconds: 300,
+        message: "Owner risk acknowledgement recorded for this proposal only. Transaction approval is still required separately.",
+      });
+    }
+
     if (body.action === "challenge") {
       const signer = body.signerAccountId;
       if (typeof signer !== "string" || !/^[a-z0-9._-]+\.testnet$/.test(signer)) {
@@ -921,6 +1425,18 @@ export async function handleRequest(req: Request) {
       const policy = await getPolicy(admin, user.id);
       if (!policy) return reply({ error: "Create and activate a security policy before requesting authorization." }, 409);
       const evaluated = evaluateTestTransferPolicy(policy);
+      const requestedProposalId = typeof body.proposalId === "string" ? body.proposalId : undefined;
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, requestedProposalId);
+      if (currentRisk.decision.outcome === "BLOCK") {
+        return reply({
+          error: "Counterparty risk is BLOCK. BLOCK cannot be overridden by owner review.",
+          risk: currentRisk.decision,
+          riskCollection: currentRisk.collection,
+        }, 403);
+      }
+      if (currentRisk.decision.outcome === "WARN" && typeof body.proposalId !== "string") {
+        return reply({ error: "Inspect this proposal and complete its proposal-bound owner risk review before requesting a wallet challenge.", risk: currentRisk.decision }, 409);
+      }
       let decision: Record<string, unknown>;
       if (body.proposalId !== undefined && typeof body.proposalId !== "string") {
         return reply({ error: "Invalid inspected proposal reference." }, 400);
@@ -939,6 +1455,8 @@ export async function handleRequest(req: Request) {
             inspected.policy_version !== policy.version ||
             !["ALLOW", "REQUIRE_APPROVAL"].includes(inspected.outcome) ||
             !isRecord(inspected.proposal) ||
+            !isRecord(inspected.proposal.counterpartyRisk) ||
+            !["ALLOW", "WARN"].includes(String(inspected.proposal.counterpartyRisk.outcome)) ||
             inspected.proposal.id !== inspected.proposal_id ||
             inspected.proposal.actionType !== "transfer" ||
             inspected.proposal.asset !== "NEAR" ||
@@ -947,10 +1465,37 @@ export async function handleRequest(req: Request) {
             inspected.proposal.network !== TEST_TRANSFER.network) {
           return reply({ error: "This proposal is not eligible for the fixed MANDATE Testnet transfer flow. Inspect it again or use the exact supported test transfer." }, 409);
         }
-        if (inspected.outcome !== evaluated.outcome) {
+        const currentFingerprint = await fingerprintCounterpartyRisk({
+          ownerId: user.id,
+          policyId: policy.id,
+          policyVersion: policy.version,
+          proposal: inspected.proposal as {
+            id: string; agentId?: string; actionType: string; asset: string;
+            amountAtomic: string; target: string; network: string;
+            protocol?: string; approvalAmountAtomic?: string;
+          },
+          risk: currentRisk.decision,
+        });
+        if (currentFingerprint !== inspected.proposal.counterpartyRiskFingerprint ||
+            currentRisk.decision.outcome !== inspected.proposal.counterpartyRisk.outcome) {
+          return reply({ error: "The counterparty risk evidence changed since inspection. Inspect the proposal again.", risk: currentRisk.decision }, 409);
+        }
+        const expectedDecisionOutcome = currentRisk.decision.outcome === "WARN"
+          ? "REQUIRE_APPROVAL" : evaluated.outcome;
+        if (inspected.outcome !== expectedDecisionOutcome) {
           return reply({ error: "The current policy decision differs from the inspected proposal. Inspect again." }, 409);
         }
-        decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: inspected.proposal_id };
+        decision = currentRisk.decision.outcome === "WARN"
+          ? {
+              ...evaluated,
+              outcome: "REQUIRE_APPROVAL",
+              reason: "COUNTERPARTY_RISK_REVIEW_REQUIRED",
+              message: "A signed, proposal-bound owner risk acknowledgement is required. This is not transaction approval.",
+              policyId: policy.id,
+              policyVersion: policy.version,
+              proposalId: inspected.proposal_id,
+            }
+          : { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: inspected.proposal_id };
       } else {
         decision = { ...evaluated, policyId: policy.id, policyVersion: policy.version, proposalId: proposalId() };
         const proposal = {
@@ -958,6 +1503,18 @@ export async function handleRequest(req: Request) {
           actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
           amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
           network: TEST_TRANSFER.network,
+          counterpartyRisk: currentRisk.decision,
+          counterpartyRiskFingerprint: await fingerprintCounterpartyRisk({
+            ownerId: user.id, policyId: policy.id, policyVersion: policy.version,
+            proposal: {
+              id: String(decision.proposalId), agentId: "mandate-wallet-panel",
+              actionType: TEST_TRANSFER.actionType, asset: TEST_TRANSFER.asset,
+              amountAtomic: TEST_TRANSFER.amountAtomic, target: TEST_TRANSFER.receiverId,
+              network: TEST_TRANSFER.network,
+            },
+            risk: currentRisk.decision,
+          }),
+          riskCollection: currentRisk.collection,
         };
         const { error: decisionError } = await admin.from("authorization_decisions").insert({
           owner_id: user.id, policy_id: policy.id, policy_version: policy.version,
@@ -976,7 +1533,7 @@ export async function handleRequest(req: Request) {
       const nonceHex = hex(nonce);
       const message = [
         "MANDATE NEAR TESTNET TRANSFER AUTHORIZATION",
-        "This signature proves control of the signing account. It does not move funds.",
+        "I explicitly approve this exact Testnet transfer under the policy stated below. This signature authorizes only the proposal-bound transfer; it does not move funds. A separate wallet transaction confirmation is still required.",
         `Account: ${signer}`,
         `Network: ${TEST_TRANSFER.network}`,
         `Action: ${TEST_TRANSFER.actionType}`,
@@ -1040,6 +1597,36 @@ export async function handleRequest(req: Request) {
           evaluateTestTransferPolicy(policy).outcome === "BLOCK") {
         return reply({ error: "The active policy changed or no longer permits this transfer. Start again." }, 409);
       }
+      const { data: inspectedRows, error: inspectedError } = await admin.from("authorization_decisions")
+        .select("proposal_id, policy_id, policy_version, proposal")
+        .eq("owner_id", user.id).eq("proposal_id", challenge.proposal_id).maybeSingle();
+      const inspected = inspectedRows;
+      if (inspectedError || !inspected || !isRecord(inspected.proposal) ||
+          !isRecord(inspected.proposal.counterpartyRisk)) {
+        return reply({ error: "The original risk decision could not be reloaded. No authorization receipt was issued." }, 409);
+      }
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, challenge.proposal_id);
+      if (currentRisk.decision.outcome === "BLOCK" ||
+          currentRisk.decision.outcome !== inspected.proposal.counterpartyRisk.outcome) {
+        return reply({
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is now BLOCK. No authorization receipt was issued."
+            : "Counterparty risk changed since challenge creation. Inspect and review again.",
+          risk: currentRisk.decision,
+        }, 409);
+      }
+      const currentFingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id, policyId: policy.id, policyVersion: policy.version,
+        proposal: inspected.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (currentFingerprint !== inspected.proposal.counterpartyRiskFingerprint) {
+        return reply({ error: "Counterparty evidence changed. The review is stale; inspect and review again." }, 409);
+      }
       const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
       const token = hex(tokenBytes);
       const tokenHash = hex(await sha256(encoder.encode(token)));
@@ -1066,6 +1653,38 @@ export async function handleRequest(req: Request) {
       const policy = await getPolicy(admin, user.id);
       if (!policy || evaluateTestTransferPolicy(policy).outcome === "BLOCK") return reply({ error: "The active policy no longer permits this transfer." }, 403);
       const tokenHash = hex(await sha256(encoder.encode(receipt)));
+      const { data: bindings, error: bindingError } = await admin.rpc("get_near_transfer_risk_binding_v1", {
+        p_owner_id: user.id, p_token_hash: tokenHash,
+      });
+      const binding = Array.isArray(bindings) ? bindings[0] : null;
+      if (bindingError || !binding || !isRecord(binding.proposal) ||
+          !isRecord(binding.proposal.counterpartyRisk)) {
+        return reply({ error: "The risk binding for this authorization receipt is unavailable. It cannot be consumed." }, 409);
+      }
+      const currentRisk = await assessCurrentCounterpartyRisk(admin, user.id, binding.proposal_id);
+      if (currentRisk.decision.outcome === "BLOCK" ||
+          currentRisk.decision.outcome !== binding.proposal.counterpartyRisk.outcome) {
+        return reply({
+          error: currentRisk.decision.outcome === "BLOCK"
+            ? "Counterparty risk is now BLOCK. The receipt was not consumed."
+            : "Counterparty risk changed. The receipt was not consumed; inspect and review again.",
+          risk: currentRisk.decision,
+        }, 403);
+      }
+      const currentFingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: binding.policy_id,
+        policyVersion: binding.policy_version,
+        proposal: binding.proposal as {
+          id: string; agentId?: string; actionType: string; asset: string;
+          amountAtomic: string; target: string; network: string;
+          protocol?: string; approvalAmountAtomic?: string;
+        },
+        risk: currentRisk.decision,
+      });
+      if (currentFingerprint !== binding.proposal.counterpartyRiskFingerprint) {
+        return reply({ error: "Counterparty evidence changed. The receipt cannot be consumed." }, 403);
+      }
       const digest = await actionDigest(signerAccountId);
       const { data: consumed, error: consumeError } = await admin.rpc("consume_near_transfer_authorization_v2", {
         p_owner_id: user.id, p_token_hash: tokenHash,
@@ -1109,6 +1728,14 @@ export async function handleRequest(req: Request) {
     const detail = error instanceof Error ? error.message : "Unknown authorization error.";
     console.error("NEAR transfer authorization error:", detail);
     if (body.action === "verify_transaction") {
+      if (error instanceof TransferVerificationRejected) {
+        return reply({
+          error: detail,
+          code: error.code,
+          retryable: false,
+          transactionHash: typeof body.transactionHash === "string" ? body.transactionHash : null,
+        }, 409);
+      }
       return reply({
         error: "The wallet has already submitted this transaction, but MANDATE could not verify its final Testnet status yet. Do not send it again; retry verification using the same transaction hash.",
         code: "TRANSACTION_VERIFICATION_UNAVAILABLE",

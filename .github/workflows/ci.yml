@@ -2,7 +2,7 @@ name: MANDATE checks
 
 on:
   push:
-    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset]
+    branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset, feat/phase-2-counterparty-risk]
   pull_request:
     branches: [main, feat/wallet-connection-ux, feat/recovery-code-reset]
 

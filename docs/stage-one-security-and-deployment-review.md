@@ -100,3 +100,44 @@ Stage One is **not yet certified complete**. Application CI, database CI, and li
 - No recovery was started, no 24-hour freeze was triggered, no funds were moved, and no NEAR on-chain access key was deleted.
 
 **Next security gate:** exercise cross-owner replacement rejection at the live Edge Function boundary (the database integration suite already contains a synthetic cross-owner rejection test), then verify replacement-account FullAccess-key checks without signing or starting a recovery. The full 24-hour recovery lifecycle remains a separate controlled Testnet exercise and must not be initiated without explicit approval.
+
+
+## Consolidated audit and controlled-demo state — 2026-11-05
+
+**This dated section supersedes the older deployment snapshots above where they describe the release as single-wallet, migration history as ending on 2026-11-01, or the hosted Edge Function as v9/v11. Those entries are retained as historical records.**
+
+### Release lineage
+
+- PR #15, `release: integrate multi-wallet ownership and recovery hardening`, merged on 2026-11-04. Its controlled rollout recorded migration `20261104155510_multi_wallet_owner_model` and deployed the corresponding `near-transfer-authorization` source at v19 with JWT verification enabled.
+- PR #16 is a separate, still-draft Phase 2 branch for proposal-bound counterparty WARN acknowledgement. It must not be confused with the merged multi-wallet release.
+- PRs #5/#6 and #11/#12 are older draft iterations of the single-wallet/multi-wallet work. They are historical, not the current release baseline.
+- PR #8 contains an earlier counterparty-risk foundation. PR #16 contains the current Phase 2 integration and should be treated as the active implementation under test.
+- PR #9 concerns migration replay/history. It exposed a real version-ledger issue: hosted Supabase recorded generated migration version IDs for the five Phase 2 migrations. The tracked migration filenames have now been renamed to those exact hosted version IDs, preserving their SQL contents so a future `db push` will not try to reapply already-recorded schema changes.
+
+### Confirmed wallet failure and correction
+
+- Hosted logs for the 2026-11-05 20:34:41 UTC attempt showed the adapter ID `meteor-wallet`, a signer/account/key match to the challenge, a 64-byte signature and 32-byte nonce, but signature verification failed for the callback page, callback origin, and callback-omitted variants. No review row, transfer authorization challenge or transfer receipt was created.
+- The historical repository fix from 2026-11-04 deliberately changed a recovery-reset challenge from a Unicode em dash to an ASCII hyphen for Meteor compatibility. Phase 2 later reintroduced a Unicode em dash in the warning text and included dynamic warning reasons without normalization. This was a genuine regression.
+- The current Phase 2 implementation now sanitizes dynamic warning reasons to printable ASCII, uses an ASCII-only fixed decision line, and fails closed before creating a challenge if the final message contains non-ASCII characters.
+- The real `@hot-labs/near-connect` Meteor adapter forwards message, nonce, recipient, account ID and state, but drops `callbackUrl` when calling Meteor Wallet. The positive integration test now mirrors that contract and signs with NEP-413 `callback_url=None`, while the HTTP request still carries the browser page URL for trusted-origin validation.
+- The server continues to validate callback origin and cryptographically verify the exact message, nonce, recipient and public key. No callback variant is accepted without a valid Ed25519 signature.
+- Application CI and the full database integration workflow passed on code revision `9667f340fb43ba21efa7bf5a97535342c57f5bb0`, including the Meteor Option::None positive risk-review integration test, adversarial proposal-bound review tests, migration replay and pgTAP. Subsequent commits only align already-applied migration filenames with the hosted ledger; confirm CI again on the newest branch head before merge.
+
+### Current hosted state
+
+- Hosted `near-transfer-authorization`: **v29 ACTIVE**, `verify_jwt=true`.
+- Five Phase 2 migrations are present in hosted migration history. Their local filenames now use the hosted version numbers.
+- Phase 2 private tables have RLS enabled; direct `anon` and `authenticated` reads are denied. The reviewed Phase 2 security-definer RPCs use fixed search paths and have EXECUTE denied to browser roles and granted to `service_role`.
+- The Vercel preview for PR #16 is READY at `https://mandate-git-feat-phase-2-counterparty-risk-web3pass.vercel.app`.
+- The latest failed real Meteor browser attempt occurred before the ASCII-only correction. No real browser acknowledgement after v29 has yet been accepted. Do not describe the real wallet flow as verified until that one controlled test passes.
+- The risk result for `confirmwithmandate.testnet` is WARN because account-creation evidence cannot be proven from the indexed historical data. The blocklist lookup was clear and recent activity was retrieved. WARN is therefore expected fail-closed behaviour, not a transfer-authorization bug.
+
+### Demo gate
+
+1. Confirm final CI success on the branch head after the migration filename alignment.
+2. Hard-refresh the READY preview and generate a fresh inspected proposal.
+3. Complete one Meteor Wallet NEP-413 owner acknowledgement within five minutes.
+4. Confirm the review row is recorded for the exact proposal and that the transfer remains separately locked pending ordinary wallet transaction approval.
+5. Stop before transaction approval unless a separate explicit Testnet transfer test is authorized.
+
+No Mainnet use or public-production launch is approved by this review. The outstanding leaked-password-protection advisor finding remains a documented pre-launch limitation under the project's no-spend constraint.

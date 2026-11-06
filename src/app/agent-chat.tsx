@@ -12,11 +12,19 @@ type Decision = {
   proposalId: string;
 };
 
+type Risk = {
+  outcome: "ALLOW" | "WARN" | "BLOCK";
+  reasons: string[];
+  requiresHumanApproval: boolean;
+};
+
 type Message = {
   id: string;
   role: "user" | "mandate";
   text: string;
   decision?: Decision;
+  risk?: Risk;
+  riskReviewRequired?: boolean;
   walletProposalId?: string;
 };
 
@@ -74,25 +82,35 @@ export function AgentChat() {
       if (!response.ok) throw new Error(data.error ?? "The inspection service is unavailable.");
 
       const decision = data.decision as Decision;
+      const risk = data.risk as Risk | undefined;
       const isExactWalletTest = parsed.amountAtomic === "1000000000000000000000" &&
         parsed.target === "confirmwithmandate.testnet";
+      // WARN may open only the separate signed risk-review step. It is not transaction approval.
+      const riskReviewRequired = risk?.outcome === "WARN";
       const canShowWalletApproval = isExactWalletTest &&
+        (risk?.outcome === "ALLOW" || riskReviewRequired) &&
         (decision.outcome === "ALLOW" || decision.outcome === "REQUIRE_APPROVAL");
-      const explanation = decision.outcome === "ALLOW"
-        ? (canShowWalletApproval
-            ? "The active policy passed this exact Testnet proposal. You can now request wallet verification and explicitly approve the transfer."
-            : "The active policy passed inspection, but this proposal is outside the fixed wallet execution test. No funds were moved.")
-        : decision.outcome === "BLOCK"
-          ? "MANDATE stopped this proposal. No execution was attempted."
-          : (canShowWalletApproval
-              ? "The policy requires owner confirmation. Sign the proposal-specific approval message in your connected NEAR wallet before the wallet can request the transfer."
-              : "The policy requires owner confirmation, but this proposal is outside the fixed wallet execution test. It cannot be signed or executed through this prototype.");
+      const explanation = riskReviewRequired
+        ? "Counterparty risk checks returned WARN. You can review and sign an acknowledgement for this exact proposal; transaction approval remains separate."
+        : risk?.outcome === "BLOCK"
+          ? "Counterparty risk checks blocked this destination. No execution was attempted."
+          : decision.outcome === "ALLOW"
+            ? (canShowWalletApproval
+                ? "The policy and counterparty risk checks passed for this exact Testnet proposal. You can now request wallet verification and explicitly approve the transfer."
+                : "The policy and counterparty risk checks passed, but this proposal is outside the fixed wallet execution test. No funds were moved.")
+            : decision.outcome === "BLOCK"
+              ? "MANDATE stopped this proposal under the active policy. No execution was attempted."
+              : (canShowWalletApproval
+                  ? "The policy requires owner confirmation. Sign the proposal-specific approval message in your connected NEAR wallet before the wallet can request the transfer."
+                  : "The policy requires owner confirmation, but this proposal is outside the fixed wallet execution test. It cannot be signed or executed through this prototype.");
 
       setMessages(current => [...current, {
         id: crypto.randomUUID(),
         role: "mandate",
         text: `I checked a transfer of ${parsed.amount} NEAR to ${parsed.target}. ${explanation}`,
         decision,
+        ...(risk ? { risk } : {}),
+        ...(riskReviewRequired && canShowWalletApproval ? { riskReviewRequired: true } : {}),
         ...(canShowWalletApproval ? { walletProposalId: decision.proposalId } : {})
       }]);
     } catch (error) {
@@ -133,10 +151,20 @@ export function AgentChat() {
                   <small>Policy version {message.decision.policyVersion} · Ref {message.decision.proposalId}</small>
                 </div>
               )}
+              {message.risk && (
+                <div className={`agent-decision ${message.risk.outcome.toLowerCase()}`}>
+                  <strong>COUNTERPARTY RISK · {message.risk.outcome}</strong>
+                  {message.risk.reasons.map((reason, index) => <span key={index}>{reason}</span>)}
+                  {message.risk.outcome === "WARN" && <small>A signed, proposal-bound acknowledgement is required before the separate transaction approval step.</small>}
+                </div>
+              )}
               {message.walletProposalId && (
                 <div className="agent-wallet-approval">
                   <p>Exact supported test transaction: 0.001 NEAR to confirmwithmandate.testnet (NEAR Testnet).</p>
-                  <NearWalletPanel proposalId={message.walletProposalId} />
+                  <NearWalletPanel
+                    proposalId={message.walletProposalId}
+                    riskReviewRequired={message.riskReviewRequired === true}
+                  />
                 </div>
               )}
             </div>

@@ -78,6 +78,7 @@ export default function Home() {
         <a className="nav-item active" href="#overview"><span>◫</span> Overview</a>
         <a className="nav-item" href="/agent"><span>✳</span> Agent chat <i>NEW</i></a>
         <a className="nav-item" href="/wallet"><span>◉</span> NEAR Testnet wallet <i>TEST</i></a>
+        <a className="nav-item" href="/review"><span>◎</span> Review console <i>TEST</i></a>
         <a className="nav-item" href="#attack-lab"><span>⌘</span> Attack Lab <i>LIVE</i></a>
         <a className="nav-item" href="#activity"><span>↗</span> Decision history</a>
         <p className="nav-label second">CONFIGURATION</p>

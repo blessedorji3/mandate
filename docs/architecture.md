@@ -1,5 +1,7 @@
 # Initial Architecture
 
+> **Historical architecture baseline — 2026-10-31.** This describes the intended first architecture, not the final implemented topology. Current functionality and demo limitations are in `README.md`; current release/deployment facts are in `docs/2026-11-05-audit-and-demo-readiness.md`.
+
 This is the intended architecture and will evolve as implementation and integration research establish feasibility.
 
 ## Trust boundary

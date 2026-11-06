@@ -15,10 +15,94 @@ function fromHex(value: string): Uint8Array {
   return Uint8Array.from(value.match(/.{2}/g)!, (part) => Number.parseInt(part, 16));
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  if (bytes.length !== 64) throw new Error("The wallet returned an invalid NEP-413 signature length.");
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+function normalizeSignedMessage(value: unknown, expectedAccountId: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("The wallet returned an invalid signed-message response.");
+  }
+  const signed = value as Record<string, unknown>;
+  if (signed.accountId !== expectedAccountId) {
+    throw new Error("The wallet signed with an account different from the registered MANDATE wallet.");
+  }
+
+  const publicKeyValue = signed.publicKey;
+  const publicKey = typeof publicKeyValue === "string"
+    ? publicKeyValue
+    : publicKeyValue !== null && typeof publicKeyValue === "object" &&
+        typeof (publicKeyValue as { toString?: unknown }).toString === "function"
+      ? String(publicKeyValue)
+      : "";
+  if (!/^ed25519:[1-9A-HJ-NP-Za-km-z]{40,50}$/.test(publicKey)) {
+    throw new Error("The wallet returned an invalid NEAR public key.");
+  }
+
+  const signatureValue = signed.signature;
+  let signature: string;
+  if (typeof signatureValue === "string") {
+    let decoded: string;
+    try { decoded = atob(signatureValue); } catch {
+      throw new Error("The wallet returned a malformed Base64 signature.");
+    }
+    if (decoded.length !== 64) throw new Error("The wallet returned an invalid NEP-413 signature length.");
+    signature = signatureValue;
+  } else if (signatureValue instanceof Uint8Array) {
+    signature = bytesToBase64(signatureValue);
+  } else if (signatureValue instanceof ArrayBuffer) {
+    signature = bytesToBase64(new Uint8Array(signatureValue));
+  } else if (Array.isArray(signatureValue) &&
+      signatureValue.length === 64 &&
+      signatureValue.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    signature = bytesToBase64(Uint8Array.from(signatureValue as number[]));
+  } else {
+    throw new Error("The wallet returned an unsupported signature format.");
+  }
+
+  // Send only the three canonical string fields accepted by the Edge Function.
+  // Do not JSON-serialize PublicKey instances or raw Uint8Array objects.
+  return { accountId: expectedAccountId, publicKey, signature };
+}
+
 async function authorizationRequest(body: Record<string, unknown>) {
   const supabase = createClient();
-  const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body });
-  if (error) throw new Error(error.message || "MANDATE authorization service is unavailable.");
+  // Validate the wire representation locally so wallet SDK objects or binary
+  // values cannot fail inside fetch serialization without a useful diagnostic.
+  let wireBody: Record<string, unknown>;
+  try {
+    wireBody = JSON.parse(JSON.stringify(body)) as Record<string, unknown>;
+  } catch (cause) {
+    console.error("[MANDATE] Authorization request is not JSON serializable.", cause);
+    throw new Error("MANDATE could not serialize the authorization request. Please retry the wallet signature.");
+  }
+  const { data, error } = await supabase.functions.invoke("near-transfer-authorization", { body: wireBody });
+  if (error) {
+    let message = error.message || "MANDATE authorization service is unavailable.";
+    const context = (error as unknown as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const payload = await context.clone().json();
+        if (payload && typeof payload.error === "string") message = payload.error;
+      } catch {
+        // Preserve the SDK message for non-JSON responses.
+      }
+    } else if (context instanceof Error) {
+      // Preserve the browser's underlying fetch/CORS/network cause for diagnosis.
+      message = `${message} (${context.name}: ${context.message})`;
+      console.error("[MANDATE] Edge Function transport error.", {
+        errorName: error.name,
+        causeName: context.name,
+        causeMessage: context.message,
+      });
+    }
+    throw new Error(message);
+  }
   if (!data || typeof data !== "object") throw new Error("MANDATE returned an invalid authorization response.");
   if ("error" in data && typeof data.error === "string") throw new Error(data.error);
   return data as Record<string, any>;
@@ -32,7 +116,13 @@ type OwnerWallet = {
   active: boolean;
 };
 
-export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
+export function NearWalletPanel({
+  proposalId,
+  riskReviewRequired = false,
+}: {
+  proposalId?: string;
+  riskReviewRequired?: boolean;
+}) {
   const connectorRef = useRef<NearConnector | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -42,6 +132,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
   const [txHash, setTxHash] = useState("");
   const [receipt, setReceipt] = useState("");
   const [authorizationConsumed, setAuthorizationConsumed] = useState(false);
+  const [riskReviewed, setRiskReviewed] = useState(false);
   const [walletRegistered, setWalletRegistered] = useState(false);
   const [wallets, setWallets] = useState<OwnerWallet[]>([]);
   const [walletToRevoke, setWalletToRevoke] = useState("");
@@ -61,6 +152,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       if (!active) return;
       setAccountId(event.accounts[0]?.accountId ?? null);
       setWalletRegistered(false);
+      setRiskReviewed(false);
       setNotice("Checking registered owner wallet status…");
       setError("");
     };
@@ -68,6 +160,7 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       if (!active) return;
       setAccountId(null);
       setWalletRegistered(false);
+      setRiskReviewed(false);
       setNotice("Wallet disconnected.");
       setTxHash("");
     };
@@ -235,6 +328,69 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
     }
   }
 
+
+  async function reviewCounterpartyRisk() {
+    const connector = connectorRef.current;
+    if (!connector || !accountId || !walletRegistered || !proposalId ||
+        !riskReviewRequired || busy || riskReviewed || txHash) return;
+    setBusy(true);
+    setError("");
+    setNotice("Preparing a signed acknowledgement for this exact counterparty warning…");
+    try {
+      const challenge = await authorizationRequest({
+        action: "risk_review_challenge",
+        proposalId,
+        signerAccountId: accountId,
+      });
+      if (typeof challenge.challengeId !== "string" ||
+          challenge.signerAccountId !== accountId ||
+          typeof challenge.message !== "string" ||
+          typeof challenge.nonceHex !== "string") {
+        throw new Error("MANDATE did not create a valid proposal-bound risk-review challenge.");
+      }
+
+      const wallet = await connector.wallet();
+      if (typeof wallet.signMessage !== "function") {
+        throw new Error("This wallet does not support NEP-413 message signing.");
+      }
+      setNotice("Read the risk acknowledgement carefully. This signature accepts the warning only; it does not approve or send a transaction…");
+      // Some browser wallets sign the full page URL as callback_url, not just
+      // the origin. Use the exact current href and submit the same value for
+      // verification; the server independently checks its HTTPS origin.
+      const callbackUrl = window.location.href;
+      const walletSignedMessage = await wallet.signMessage({
+        message: challenge.message,
+        recipient: challenge.recipient,
+        nonce: fromHex(challenge.nonceHex),
+        callbackUrl,
+        network: "testnet",
+        signerId: accountId,
+      } as Parameters<typeof wallet.signMessage>[0] & { callbackUrl: string });
+      const signedMessage = normalizeSignedMessage(walletSignedMessage, accountId);
+      const walletAdapterId =
+        (wallet as unknown as { manifest?: { id?: unknown } }).manifest?.id;
+      const result = await authorizationRequest({
+        action: "risk_review_verify",
+        challengeId: challenge.challengeId,
+        callbackUrl,
+        walletAdapterId: typeof walletAdapterId === "string" ? walletAdapterId : "unknown",
+        signedMessage,
+      });
+      if (result.reviewed !== true || result.proposalId !== proposalId ||
+          result.riskFingerprint !== challenge.riskFingerprint) {
+        throw new Error("MANDATE did not confirm the review for this exact proposal and risk evidence.");
+      }
+      setRiskReviewed(true);
+      setNotice("Counterparty warning acknowledged for this proposal only. The risk outcome remains WARN. You must still approve the exact transaction separately in your NEAR wallet.");
+    } catch (cause) {
+      setRiskReviewed(false);
+      setError(cause instanceof Error ? cause.message : "The counterparty risk review could not be completed.");
+      setNotice("No risk acknowledgement was recorded. The transfer remains locked.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function retryTransactionVerification() {
     if (!txHash || !receipt || !accountId || busy) return;
     setBusy(true);
@@ -263,10 +419,11 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
 
   async function executeTestTransfer() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || busy || txHash) return;
+    if (!connector || !accountId || !walletRegistered || busy || txHash ||
+        (riskReviewRequired && !riskReviewed)) return;
     setBusy(true);
     setError("");
-    setNotice("Checking your active MANDATE policy…");
+    setNotice("Checking your active MANDATE policy and the reviewed risk evidence…");
     try {
       const challenge = await authorizationRequest({
         action: "challenge",
@@ -343,8 +500,11 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       }
       setNotice("Verified on NEAR Testnet: the exact 0.001 NEAR transfer reached the confirmed recipient.");
     } catch (cause) {
+      if (riskReviewRequired && !txHash) setRiskReviewed(false);
       setError(cause instanceof Error ? cause.message : "The transfer was cancelled or failed. Check wallet activity before retrying.");
-      setNotice("No successful transaction was confirmed by MANDATE.");
+      setNotice(riskReviewRequired && !txHash
+        ? "The risk acknowledgement may have expired or been consumed. Refresh the review before trying again."
+        : "No successful transaction was confirmed by MANDATE.");
     } finally {
       setBusy(false);
     }
@@ -426,14 +586,28 @@ export function NearWalletPanel({ proposalId }: { proposalId?: string }) {
       {accountId && walletRegistered && (
         <p className="near-wallet-notice" role="status">✓ This wallet is registered and verified for your signed-in MANDATE account.</p>
       )}
+      {accountId && walletRegistered && riskReviewRequired && !riskReviewed && (
+        <div className="near-transfer-box">
+          <strong>Counterparty risk acknowledgement required</strong>
+          <p>The destination received a WARN result. Your NEP-413 signature acknowledges this exact proposal and its current evidence fingerprint. It does not change WARN to ALLOW and does not approve a transaction.</p>
+          <button className="inspect-button" onClick={reviewCounterpartyRisk} disabled={busy || !proposalId || Boolean(txHash)}>
+            {busy ? "Preparing review…" : "Review warning & sign acknowledgement →"}
+          </button>
+          <p className="near-wallet-notice" role="status">The acknowledgement expires after five minutes and can be used once. A fresh risk check is required before authorization.</p>
+          {error && <p className="near-wallet-error" role="alert">{error}</p>}
+        </div>
+      )}
+      {accountId && walletRegistered && riskReviewRequired && riskReviewed && (
+        <p className="near-wallet-notice" role="status">✓ Risk acknowledgement recorded for this proposal only. The underlying risk outcome remains WARN; transaction approval is still required separately.</p>
+      )}
       {accountId && walletRegistered && (
         <div className="near-transfer-box">
           <div>
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed}>
-            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed || (riskReviewRequired && !riskReviewed)}>
+            {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : riskReviewRequired && !riskReviewed ? "Complete signed risk review first" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>
           {txHash && receipt && error && (
