@@ -19,7 +19,7 @@ function signerReturning(response: {
   success: true;
   payload: { accountId: string; publicKey: string; signature: string };
 }) {
-  const signMessage = vi.fn(async () => response);
+  const signMessage = vi.fn(async (_input: Parameters<MeteorWallet["signMessage"]>[0]) => response);
   return {
     signer: { signMessage } as unknown as MeteorRecoverySigner,
     signMessage,
@@ -40,7 +40,7 @@ describe("account-targeted Meteor recovery signing", () => {
     const signed = await signExactMeteorRecoveryChallenge(signer, challenge);
 
     expect(signMessage).toHaveBeenCalledTimes(1);
-    const request = signMessage.mock.calls[0][0] as Parameters<MeteorWallet["signMessage"]>[0];
+    const request = signMessage.mock.calls[0][0];
     expect(request.accountIdentifier).toEqual({
       blockchain: "near",
       network: "testnet",
