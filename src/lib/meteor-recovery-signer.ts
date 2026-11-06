@@ -23,14 +23,6 @@ function challengeNonce(nonceHex: string): Uint8Array {
   );
 }
 
-function nonceAsNumericRecord(nonce: Uint8Array): { [index: number]: number } {
-  const record: { [index: number]: number } = {};
-  nonce.forEach((value, index) => {
-    record[index] = value;
-  });
-  return record;
-}
-
 /**
  * Create the official Meteor SDK client once on the client side, before the
  * user presses the sign button. This is important because Meteor opens its
@@ -84,7 +76,7 @@ export async function signExactMeteorRecoveryChallenge(
   const nonce = challengeNonce(challenge.nonceHex);
   const response = await signer.signMessage({
     message: challenge.message,
-    nonce: nonceAsNumericRecord(nonce),
+    nonce,
     recipient: challenge.recipient,
     accountIdentifier: {
       blockchain: "near",
