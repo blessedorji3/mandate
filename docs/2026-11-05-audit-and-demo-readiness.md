@@ -33,7 +33,7 @@ The current fix sanitizes dynamic warning text to printable ASCII, hard-checks t
 
 **Important cryptographic nuance:** NEP-413 supports UTF-8 strings. The saved `nep413_local_test.py` uses a freshly generated local Ed25519 key and verifies a Unicode message with callback `None`; it is an offline serialization regression test, not a test against Meteor Wallet. Therefore the em dash alone is not proven to be the sole cause. The confirmed gap was that tests did not match the actual Meteor adapter contract. The printable-ASCII safeguard restores the prior Meteor compatibility discipline, but only the next real Meteor browser signature can prove the external path is fixed.
 
-**Important qualification:** CI and adapter-shaped NEP-413 integration tests are green, but the actual Meteor Wallet browser round trip has not yet passed after the v29 correction. The final external wallet acknowledgement remains the decisive demo gate.
+**Historical qualification (superseded on 2026-11-06):** When this audit draft was first written, the Meteor Wallet browser round trip had not yet passed after the v29 correction. The subsequent successful browser verification is recorded in the current release-status note and the external wallet test section below.
 
 ## What was inspected
 
@@ -52,7 +52,7 @@ This is a source and infrastructure audit, not a full independent penetration te
 | Item | State | Meaning |
 |---|---|---|
 | PR #15 multi-wallet release | Merged 2026-11-04 | Current merged release baseline; controlled rollout recorded in Supabase |
-| PR #16 Phase 2 owner WARN review | Open, draft | Active Phase 2 candidate; fresh Meteor acknowledgement now passed on the preview, with final CI rerun underway |
+| PR #16 Phase 2 owner WARN review | Merged 2026-11-06 | Phase 2 counterparty-risk integration and proposal-bound owner WARN acknowledgement are part of `main` |
 | PR #2 Testnet transfer documentation | Open, non-draft | Separate documentation-only proof; not part of the Phase 2 release candidate |
 | PR #5–#12 (excluding #2) | Closed, not merged | Superseded implementation and diagnostic branches; commits and discussions remain available for audit |
 
@@ -105,7 +105,7 @@ The exact tested code revision `9667f340fb43ba21efa7bf5a97535342c57f5bb0` passed
 - Application workflow: tests, type-check, dependency audit and build.
 - Database workflow: type-check of Edge Functions, recovery and Meteor NEP-413 tests, HTTP authentication, signed NEAR transfer lifecycle, blocklist reviewer integration, positive Meteor Option::None risk-review acknowledgement, proposal-bound review security tests, adversarial recovery tests, migration replay and pgTAP.
 
-After those passes, the five SQL migration filenames were aligned to hosted version IDs and documentation was updated. A fresh workflow run on the new branch head is required before merging.
+After those passes, the five SQL migration filenames were aligned to hosted version IDs and documentation was updated. PR #16 was subsequently merged into `main` on 2026-11-06. Fresh application and database workflows on the final post-merge documentation commit both completed successfully; the Vercel production deployment for that commit reached READY and the `mandate-snowy.vercel.app` alias was confirmed on that deployment.
 
 The Vercel preview is READY at:
 `https://mandate-git-feat-phase-2-counterparty-risk-web3pass.vercel.app`
@@ -141,7 +141,7 @@ The live demo can now demonstrate the end-to-end counterparty WARN acknowledgeme
 - Public-production launch.
 - Treating an owner acknowledgement as transaction approval.
 - Removing the fail-closed risk gate or weakening signature checks.
-- Claiming the live Meteor browser signature is verified before the actual fresh browser test passes.
+- Claiming the real-wallet recovery-code reset journey is verified before that separate fresh browser test passes.
 
 The Supabase leaked-password-protection advisor finding remains a documented pre-launch limitation under the project's no-spend constraint. It is not the cause of the current NEP-413 failure.
 
@@ -149,7 +149,7 @@ The Supabase leaked-password-protection advisor finding remains a documented pre
 
 The following superseded implementation and diagnostic PRs are closed. Their branches, commits and discussions were not deleted: PR #5, #6, #7, #8, #9, #10, #11 and #12.
 
-PR #15 remains the merged multi-wallet/recovery baseline. PR #16 is the active Phase 2 candidate; the live Meteor owner-acknowledgement test passed on 2026-11-06. PR #2 remains open as a separate Testnet-transfer documentation item and is not a dependency of the Phase 2 demo.
+PR #15 remains the merged multi-wallet/recovery baseline. PR #16 was merged into `main` on 2026-11-06 and contains the Phase 2 counterparty-risk integration and proposal-bound WARN acknowledgement. PR #2 remains open as a separate Testnet-transfer documentation item and is not a dependency of the Phase 2 demo.
 
 
 ## Post-merge release reconciliation record — 2026-11-06
