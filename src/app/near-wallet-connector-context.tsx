@@ -3,19 +3,29 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { NearConnector } from "@hot-labs/near-connect";
 
-const NearWalletConnectorContext = createContext<NearConnector | null>(null);
+type NearWalletConnectorContextValue = {
+  connector: NearConnector | null;
+  recoveryMode: boolean;
+  setRecoveryMode: (active: boolean) => void;
+};
+
+const NearWalletConnectorContext = createContext<NearWalletConnectorContextValue>({
+  connector: null,
+  recoveryMode: false,
+  setRecoveryMode: () => undefined,
+});
 
 export function NearWalletConnectorProvider({ children }: { children: ReactNode }) {
   const [connector, setConnector] = useState<NearConnector | null>(null);
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   useEffect(() => {
     let active = true;
-    let instance: NearConnector | null = null;
 
     async function initialize() {
       try {
         const { NearConnector } = await import("@hot-labs/near-connect");
-        instance = new NearConnector({
+        const instance = new NearConnector({
           network: "testnet",
           features: { testnet: true },
           autoConnect: false,
@@ -34,7 +44,7 @@ export function NearWalletConnectorProvider({ children }: { children: ReactNode 
   }, []);
 
   return (
-    <NearWalletConnectorContext.Provider value={connector}>
+    <NearWalletConnectorContext.Provider value={{ connector, recoveryMode, setRecoveryMode }}>
       {children}
     </NearWalletConnectorContext.Provider>
   );
