@@ -27,6 +27,7 @@ const ALLOWED_ORIGINS = new Set([
   "https://mandate-git-feat-phase-2-counterparty-risk-web3pass.vercel.app",
   "https://mandate-pxz0pxb8e-web3pass.vercel.app",
   "https://mandate-git-fix-recovery-reset-explicit-callback-url-web3pass.vercel.app",
+  "https://mandate-git-fix-recovery-replacement-account-selection-web3pass.vercel.app",
   "https://mandate-jckxw5flf-web3pass.vercel.app",
   "https://mandate-jdzunl9rx-web3pass.vercel.app",
 ]);
