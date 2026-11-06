@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
+import {
+  createMeteorRecoverySigner,
+  signExactMeteorRecoveryChallenge,
+  type MeteorRecoveryChallenge,
+  type MeteorRecoverySigner,
+} from "@/lib/meteor-recovery-signer";
 
 type RecoveryRequest = {
   id: string;
@@ -11,6 +16,13 @@ type RecoveryRequest = {
   startedAt: string;
   availableAt: string;
   secondsRemaining: number;
+};
+
+type PreparedChallenge = MeteorRecoveryChallenge & {
+  challengeId: string;
+  requestId: string;
+  action: "start" | "finalize";
+  expiresAt: number;
 };
 
 async function recoveryRequest(body: Record<string, unknown>) {
@@ -22,21 +34,16 @@ async function recoveryRequest(body: Record<string, unknown>) {
   return data as Record<string, any>;
 }
 
-function fromHex(value: string) {
-  if (!/^(?:[0-9a-f]{2})+$/.test(value)) throw new Error("The recovery challenge was malformed.");
-  return Uint8Array.from(value.match(/.{2}/g)!, part => Number.parseInt(part, 16));
-}
-
 export function RecoveryLifecyclePanel() {
-  const connectorRef = useRef<NearConnector | null>(null);
+  const signerRef = useRef<MeteorRecoverySigner | null>(null);
   const [ready, setReady] = useState(false);
-  const [accountId, setAccountId] = useState("");
-  const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
+  const [replacementAccountId, setReplacementAccountId] = useState("");
   const [activeWalletAccountId, setActiveWalletAccountId] = useState<string | null>(null);
   const [recoveryCode, setRecoveryCode] = useState("");
-  const [replacementAccount, setReplacementAccount] = useState("");
   const [request, setRequest] = useState<RecoveryRequest | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
+  const [challenge, setChallenge] = useState<PreparedChallenge | null>(null);
+  const [challengeSecondsRemaining, setChallengeSecondsRemaining] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("Checking wallet recovery eligibility…");
@@ -53,10 +60,10 @@ export function RecoveryLifecyclePanel() {
       typeof state.activeWalletAccountId === "string" ? state.activeWalletAccountId : null,
     );
     const next = state.request && state.request.status === "pending"
-      ? state.request as RecoveryRequest : null;
+      ? state.request as RecoveryRequest
+      : null;
     setRequest(next);
     setSecondsRemaining(Number(next?.secondsRemaining ?? 0));
-    setReplacementAccount(next?.newAccountId ?? "");
     if (next) setNotice("Recovery is pending. All MANDATE financial authorizations are frozen.");
     else if (state.request?.status === "completed") setNotice("The latest wallet recovery has completed.");
     else if (state.request?.status === "cancelled") setNotice("The previous recovery request was cancelled.");
@@ -65,57 +72,56 @@ export function RecoveryLifecyclePanel() {
 
   useEffect(() => {
     let active = true;
-    let connector: NearConnector | null = null;
-    const onSignIn = (event: { accounts: Account[] }) => {
-      if (!active) return;
-      const accounts = [...new Set(event.accounts
-        .map(account => account.accountId)
-        .filter((value): value is string => typeof value === "string" && value.length > 0))];
-      setAvailableAccounts(accounts);
-      // Never silently choose the first account when the wallet exposes more
-      // than one. The user must select the intended replacement explicitly.
-      setAccountId(accounts.length === 1 ? accounts[0] : "");
-      if (accounts.length > 1) {
-        setNotice("Wallet connected. Choose the exact replacement account below.");
-      }
-    };
-    const onSignOut = () => {
-      if (!active) return;
-      setAccountId("");
-      setAvailableAccounts([]);
-    };
     async function initialize() {
       try {
-        await refreshStatus();
-        const { NearConnector } = await import("@hot-labs/near-connect");
-        connector = new NearConnector({ network: "testnet", features: { testnet: true }, autoConnect: false });
-        connectorRef.current = connector;
-        connector.on("wallet:signIn", onSignIn);
-        connector.on("wallet:signOut", onSignOut);
-        await connector.whenManifestLoaded;
-        if (active) setReady(true);
+        // Prepare the official Meteor SDK before the signing button is pressed.
+        // Its signMessage method opens the wallet popup directly from the
+        // user's click, avoiding a popup blocked after an awaited API request.
+        const [, signer] = await Promise.all([
+          refreshStatus(),
+          createMeteorRecoverySigner(),
+        ]);
+        if (!active) return;
+        signerRef.current = signer;
+        setReady(true);
       } catch (cause) {
-        if (active) {
-          setError(cause instanceof Error ? cause.message : "Could not load wallet recovery.");
-          setNotice("Recovery status unavailable. Do not attempt wallet replacement.");
-        }
+        if (!active) return;
+        setError(cause instanceof Error ? cause.message : "Could not load wallet recovery.");
+        setNotice("Recovery status or Meteor signing is unavailable. Do not attempt wallet replacement.");
       }
     }
     void initialize();
     return () => {
       active = false;
-      if (connector) {
-        connector.off("wallet:signIn", onSignIn);
-        connector.off("wallet:signOut", onSignOut);
-      }
+      signerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     if (!request || secondsRemaining <= 0) return;
-    const timer = window.setInterval(() => setSecondsRemaining(value => Math.max(0, value - 1)), 1000);
+    const timer = window.setInterval(() => {
+      setSecondsRemaining(value => Math.max(0, value - 1));
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [request?.id, request?.availableAt, secondsRemaining > 0]);
+
+  useEffect(() => {
+    if (!challenge) {
+      setChallengeSecondsRemaining(0);
+      return;
+    }
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((challenge.expiresAt - Date.now()) / 1000));
+      setChallengeSecondsRemaining(remaining);
+      if (remaining === 0) {
+        setChallenge(null);
+        setNotice("The signing challenge expired. Prepare a fresh challenge before signing.");
+      }
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [challenge?.challengeId, challenge?.expiresAt]);
 
   function formatRemaining(seconds: number) {
     const hours = Math.floor(seconds / 3600);
@@ -124,130 +130,171 @@ export function RecoveryLifecyclePanel() {
     return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }
 
-  async function connectReplacementWallet() {
-    if (!ready || busy) return;
-    setBusy(true); setError("");
-    setAccountId("");
-    setAvailableAccounts([]);
-    try {
-      const connector = connectorRef.current;
-      if (!connector) throw new Error("NEAR Testnet wallet connector is unavailable.");
-
-      // Do not automatically disconnect the normal wallet panel here.
-      // Meteor/Hot Connector can reuse a cached connectionUid after signOut;
-      // disconnecting alone is not a proven account-switch mechanism and may
-      // interrupt the user's normal wallet session without changing accounts.
-      // We connect, inspect the account actually returned, and fail closed if
-      // it is still the currently active MANDATE wallet.
-      setNotice("Requesting the replacement wallet. MANDATE will verify the account returned by Meteor…");
-      await connector.connect();
-      const connected = await connector.getConnectedWallet();
-      const accounts = [...new Set(connected.accounts
-        .map(account => account.accountId)
-        .filter((value): value is string => typeof value === "string" && value.length > 0))];
-      if (accounts.length === 0) throw new Error("No NEAR account was returned by the wallet.");
-
-      setAvailableAccounts(accounts);
-      // A single returned account can be displayed immediately. When a wallet
-      // exposes multiple accounts, require an explicit selection below.
-      const next = accounts.length === 1 ? accounts[0] : "";
-      setAccountId(next);
-      if (next && next === activeWalletAccountId) {
-        setNotice(
-          `${next} is already the active MANDATE wallet. It cannot replace itself. Reconnect and choose a different Testnet account.`,
-        );
-      } else if (next) {
-        setNotice(`Replacement wallet selected: ${next}. It is not authorized yet.`);
-      } else {
-        setNotice("Wallet connected. Choose the exact replacement account below.");
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not connect replacement wallet.");
-      setNotice("No recovery request was started. Your registered wallets and funds are unchanged.");
-    } finally { setBusy(false); }
+  function validReplacementAccount(value: string) {
+    return /^[a-z0-9._-]{2,64}\.testnet$/.test(value.trim());
   }
 
-  async function signChallenge(action: "start" | "finalize", challenge: Record<string, any>) {
-    const connector = connectorRef.current;
-    if (!connector || accountId !== challenge.accountId) {
-      throw new Error("Connect the exact replacement wallet named in the recovery challenge.");
-    }
-    const wallet = await connector.wallet();
-    if (typeof wallet.signMessage !== "function") throw new Error("This wallet does not support NEP-413 message signing.");
-    setNotice(action === "start"
-      ? "Review and sign the recovery request. This starts a 24-hour freeze; it does not move funds."
-      : "The 24-hour delay has elapsed. Review and sign the final replacement confirmation.");
-    const signedMessage = await wallet.signMessage({
-      message: challenge.message,
-      recipient: challenge.recipient,
-      nonce: fromHex(challenge.nonceHex),
-      network: "testnet",
-      signerId: challenge.accountId,
-    });
-    const signedAccountId = (signedMessage as { accountId?: unknown } | null)?.accountId;
-    if (signedAccountId !== challenge.accountId) {
-      throw new Error("The wallet signed with a different account than the selected replacement wallet. No recovery request was started.");
-    }
-    return signedMessage;
-  }
-
-  async function startRecovery() {
-    if (busy || request || !codeEstablished || !hasHistory || !recoveryCode.trim() || !accountId) return;
-    if (accountId === activeWalletAccountId) {
-      setError("Choose a different NEAR Testnet account. Your currently active MANDATE wallet cannot be its own replacement.");
+  async function prepareStartRecovery() {
+    if (busy || !ready || request || !hasHistory || !codeEstablished) return;
+    const accountId = replacementAccountId.trim().toLowerCase();
+    if (!validReplacementAccount(accountId)) {
+      setError("Enter a valid NEAR Testnet account, such as replacement.testnet.");
       return;
     }
-    setBusy(true); setError("");
+    if (accountId === activeWalletAccountId) {
+      setError("The replacement must be different from your currently active MANDATE wallet.");
+      return;
+    }
+    if (!/^MND-[0-9A-F]{64}$/.test(recoveryCode.trim().toUpperCase())) {
+      setError("Enter your complete independent MANDATE recovery code.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setChallenge(null);
     try {
-      const challenge = await recoveryRequest({
+      const result = await recoveryRequest({
         action: "recovery_start_challenge",
         accountId,
         recoveryCode: recoveryCode.trim().toUpperCase(),
       });
-      const signedMessage = await signChallenge("start", challenge);
+      const next: PreparedChallenge = {
+        challengeId: result.challengeId,
+        requestId: result.requestId,
+        action: "start",
+        accountId: result.accountId,
+        publicKey: result.publicKey,
+        message: result.message,
+        recipient: result.recipient,
+        nonceHex: result.nonceHex,
+        expiresAt: Date.now() + Number(result.expiresInSeconds ?? 300) * 1000,
+      };
+      setChallenge(next);
+      setReplacementAccountId(accountId);
+      setNotice(
+        `MANDATE verified that ${accountId} has an active FullAccess key. Press the signing button and choose this exact account in Meteor.`,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not prepare wallet recovery.");
+      setNotice("No recovery request was started. Your existing wallet links and funds are unchanged.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signAndStartRecovery() {
+    if (busy || !ready || !challenge || challenge.action !== "start") return;
+    if (challengeSecondsRemaining <= 0) {
+      setChallenge(null);
+      setError("The signing challenge expired. Prepare a new one.");
+      return;
+    }
+    const signer = signerRef.current;
+    if (!signer) {
+      setError("Meteor signing is not ready. Reload this page and try again.");
+      return;
+    }
+
+    // This call is intentionally made directly from this button handler.
+    // Meteor opens its popup synchronously before the next awaited operation.
+    setBusy(true);
+    setError("");
+    try {
+      setNotice(`Waiting for Meteor to sign for ${challenge.accountId}…`);
+      const signedMessage = await signExactMeteorRecoveryChallenge(signer, challenge);
       const result = await recoveryRequest({
         action: "recovery_start_verify",
         challengeId: challenge.challengeId,
         signedMessage,
         recoveryCode: recoveryCode.trim().toUpperCase(),
       });
+      setChallenge(null);
+      setRecoveryCode("");
       setRequest(result.request ?? null);
       setSecondsRemaining(Number(result.request?.secondsRemaining ?? 86400));
-      setRecoveryCode("");
       setNotice(result.message || "Recovery started. Financial authorizations are frozen for 24 hours.");
       await refreshStatus();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not start wallet recovery.");
+      setError(cause instanceof Error ? cause.message : "Could not verify the replacement wallet signature.");
       setNotice("Recovery was not started. The existing wallet remains unchanged.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function finalizeRecovery() {
-    if (busy || !request || secondsRemaining > 0) return;
-    setBusy(true); setError("");
+  async function prepareFinalizeRecovery() {
+    if (busy || !ready || !request || secondsRemaining > 0) return;
+    setBusy(true);
+    setError("");
+    setChallenge(null);
     try {
-      const challenge = await recoveryRequest({ action: "recovery_finalize_challenge" });
-      const signedMessage = await signChallenge("finalize", challenge);
+      const result = await recoveryRequest({ action: "recovery_finalize_challenge" });
+      const next: PreparedChallenge = {
+        challengeId: result.challengeId,
+        requestId: result.requestId,
+        action: "finalize",
+        accountId: result.accountId,
+        publicKey: result.publicKey,
+        message: result.message,
+        recipient: result.recipient,
+        nonceHex: result.nonceHex,
+        expiresAt: Date.now() + Number(result.expiresInSeconds ?? 300) * 1000,
+      };
+      setChallenge(next);
+      setNotice(
+        `The 24-hour delay has elapsed. Press the signing button and authorize ${next.accountId} in Meteor to complete the replacement.`,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not prepare final recovery confirmation.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signAndFinalizeRecovery() {
+    if (busy || !ready || !request || !challenge || challenge.action !== "finalize") return;
+    if (challengeSecondsRemaining <= 0) {
+      setChallenge(null);
+      setError("The signing challenge expired. Prepare a new one.");
+      return;
+    }
+    const signer = signerRef.current;
+    if (!signer) {
+      setError("Meteor signing is not ready. Reload this page and try again.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    try {
+      setNotice(`Waiting for Meteor to sign the final replacement for ${challenge.accountId}…`);
+      const signedMessage = await signExactMeteorRecoveryChallenge(signer, challenge);
       const result = await recoveryRequest({
         action: "recovery_finalize_verify",
         challengeId: challenge.challengeId,
         signedMessage,
       });
-      setRequest(null);
-      if (typeof result.recoveryCode !== "string") throw new Error("Wallet recovery completed but MANDATE did not return the rotated recovery code. Contact support before continuing.");
+      setChallenge(null);
+      if (typeof result.recoveryCode !== "string") {
+        throw new Error("Wallet recovery completed but MANDATE did not return the rotated recovery code. Contact support before continuing.");
+      }
       setRotatedCode(result.recoveryCode);
       setCodeEstablished(true);
       setNotice(result.message || "Wallet recovery completed. Save your new recovery code.");
       await refreshStatus();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not finalize wallet recovery.");
-      setNotice("Recovery remains pending. The existing wallet is unchanged; authorizations remain frozen.");
-    } finally { setBusy(false); }
+      setNotice("Recovery remains pending. The existing wallet links are unchanged; authorizations remain frozen.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function cancelRecovery() {
     if (busy || !request || !recoveryCode.trim()) return;
-    setBusy(true); setError("");
+    setBusy(true);
+    setError("");
     try {
       const result = await recoveryRequest({
         action: "recovery_cancel",
@@ -255,12 +302,15 @@ export function RecoveryLifecyclePanel() {
         recoveryCode: recoveryCode.trim().toUpperCase(),
       });
       setRequest(null);
+      setChallenge(null);
       setRecoveryCode("");
       setNotice(result.message || "Recovery cancelled.");
       await refreshStatus();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not cancel recovery.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!hasHistory) return null;
@@ -281,13 +331,22 @@ export function RecoveryLifecyclePanel() {
             <strong>{formatRemaining(secondsRemaining)}</strong>
           </div>
           <p>During this period, MANDATE blocks new financial authorizations and invalidates outstanding transfer challenges and receipts. All existing wallet links remain unchanged until finalization. After the final signature, every existing active wallet link will be revoked in MANDATE and only the replacement wallet will remain active. NEAR on-chain keys and funds are not changed by this process.</p>
-          {secondsRemaining === 0 && (
-            <button className="inspect-button" onClick={finalizeRecovery} disabled={busy || accountId !== request.newAccountId}>
-              {busy ? "Verifying replacement…" : "Sign & finalize wallet replacement →"}
+          {secondsRemaining === 0 && !challenge && (
+            <button className="outline-button" onClick={prepareFinalizeRecovery} disabled={busy || !ready}>
+              {busy ? "Preparing confirmation…" : "Prepare final replacement signature →"}
             </button>
           )}
+          {challenge?.action === "finalize" && (
+            <div className="near-transfer-box">
+              <p>Challenge expires in <strong>{formatRemaining(challengeSecondsRemaining)}</strong>. The requested account and FullAccess key have been checked again by MANDATE.</p>
+              <p>Replacement account: <code>{challenge.accountId}</code></p>
+              <button className="inspect-button" onClick={signAndFinalizeRecovery} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
+                {busy ? "Waiting for Meteor…" : "Sign with this exact account & finalize →"}
+              </button>
+            </div>
+          )}
           {secondsRemaining > 0 && (
-            <p className="near-wallet-notice">Finalization will unlock automatically when the 24-hour delay ends. Reconnect the replacement wallet before finalizing.</p>
+            <p className="near-wallet-notice">Finalization becomes available when the 24-hour delay ends. The replacement account must sign again.</p>
           )}
           <label htmlFor="recovery-cancel-code">Independent recovery code to cancel</label>
           <input id="recovery-cancel-code" value={recoveryCode} onChange={event => setRecoveryCode(event.target.value.toUpperCase())} placeholder="MND-…" autoComplete="off" />
@@ -297,46 +356,42 @@ export function RecoveryLifecyclePanel() {
         </div>
       ) : (
         <div className="near-transfer-box">
-          <p>To replace the wallet set after loss or compromise, connect a replacement NEAR Testnet wallet and provide your independent recovery code. This starts a 24-hour security delay. Finalization revokes every existing active wallet link in MANDATE and leaves only the replacement wallet active; it does not revoke on-chain keys or move funds.</p>
-          <button className="outline-button" onClick={connectReplacementWallet} disabled={!ready || busy}>
-            {busy ? "Please wait…" : accountId ? "Switch / reconnect replacement wallet →" : "Connect replacement wallet →"}
-          </button>
-          {availableAccounts.length > 0 && (
-            <>
-              <label htmlFor="recovery-replacement-account">Choose the replacement NEAR Testnet account</label>
-              <select
-                id="recovery-replacement-account"
-                value={accountId}
-                onChange={event => setAccountId(event.target.value)}
-                disabled={busy}
-              >
-                <option value="">Choose an account</option>
-                {availableAccounts.map(availableAccount => (
-                  <option
-                    key={availableAccount}
-                    value={availableAccount}
-                    disabled={availableAccount === activeWalletAccountId}
-                  >
-                    {availableAccount}{availableAccount === activeWalletAccountId ? " (currently active — cannot replace itself)" : ""}
-                  </option>
-                ))}
-              </select>
-              <p>
-                Current active MANDATE wallet: <code>{activeWalletAccountId ?? "Not available"}</code>.
-                Choose a different account. Selecting an account here does not start recovery.
-              </p>
-            </>
-          )}
-          {accountId && accountId === activeWalletAccountId && (
-            <p className="near-wallet-error" role="alert">
-              This is already the active MANDATE wallet. Reconnect and choose a different account.
-            </p>
-          )}
+          <p>To replace the wallet set after loss or compromise, enter the replacement NEAR Testnet account and prove control of its FullAccess key in Meteor. Preparing a challenge does not start recovery. The 24-hour security delay begins only after Meteor signs and MANDATE verifies the exact account and key.</p>
+          <label htmlFor="recovery-replacement-account">Replacement NEAR Testnet account</label>
+          <input
+            id="recovery-replacement-account"
+            value={replacementAccountId}
+            onChange={event => {
+              setReplacementAccountId(event.target.value.trim().toLowerCase());
+              setChallenge(null);
+            }}
+            placeholder="replacement.testnet"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <p className="near-wallet-notice">
+            Current active MANDATE wallet: <code>{activeWalletAccountId ?? "Not available"}</code>.
+            The replacement must be a different account.
+          </p>
           <label htmlFor="recovery-start-code">Independent MANDATE recovery code</label>
-          <input id="recovery-start-code" value={recoveryCode} onChange={event => setRecoveryCode(event.target.value.toUpperCase())} placeholder="MND-…" autoComplete="off" />
-          <button className="inspect-button" onClick={startRecovery} disabled={busy || !ready || !accountId || accountId === activeWalletAccountId || !recoveryCode.trim() || !codeEstablished}>
-            {busy ? "Verifying recovery…" : "Start 24-hour wallet recovery →"}
-          </button>
+          <input id="recovery-start-code" value={recoveryCode} onChange={event => {
+            setRecoveryCode(event.target.value.toUpperCase());
+            setChallenge(null);
+          }} placeholder="MND-…" autoComplete="off" />
+          {!challenge && (
+            <button className="outline-button" onClick={prepareStartRecovery} disabled={busy || !ready || !replacementAccountId.trim() || !recoveryCode.trim() || !codeEstablished}>
+              {busy ? "Preparing recovery challenge…" : "Check account & prepare signature →"}
+            </button>
+          )}
+          {challenge?.action === "start" && (
+            <div className="near-transfer-box">
+              <p>MANDATE found the requested account's FullAccess key. The challenge expires in <strong>{formatRemaining(challengeSecondsRemaining)}</strong>.</p>
+              <p>Exact requested account: <code>{challenge.accountId}</code></p>
+              <button className="inspect-button" onClick={signAndStartRecovery} disabled={busy || !ready || challengeSecondsRemaining <= 0}>
+                {busy ? "Waiting for Meteor…" : "Open Meteor & sign for this exact account →"}
+              </button>
+            </div>
+          )}
         </div>
       )}
       {rotatedCode && (
@@ -344,8 +399,12 @@ export function RecoveryLifecyclePanel() {
           <strong>New recovery code — shown only once</strong>
           <code>{rotatedCode}</code>
           <button className="outline-button" onClick={async () => {
-            try { await navigator.clipboard.writeText(rotatedCode); setCopied(true); }
-            catch { setError("Clipboard access failed. Select and copy the recovery code manually."); }
+            try {
+              await navigator.clipboard.writeText(rotatedCode);
+              setCopied(true);
+            } catch {
+              setError("Clipboard access failed. Select and copy the recovery code manually.");
+            }
           }}>{copied ? "Copied ✓" : "Copy new recovery code"}</button>
           <p>The previous recovery code is now invalid. Store this new code privately and securely.</p>
         </div>
@@ -353,7 +412,7 @@ export function RecoveryLifecyclePanel() {
       {error && <p className="near-wallet-error" role="alert">{error}</p>}
       <div className="near-wallet-boundary">
         <strong>Recovery security</strong>
-        <span>Starting recovery requires your MANDATE recovery code and a fresh signature from the replacement wallet. The replacement is not activated until the 24-hour delay ends and that wallet signs again. Cancellation requires the independent recovery code. No seed phrase or private key is requested.</span>
+        <span>Starting recovery requires your independent MANDATE recovery code and a fresh NEP-413 signature from the exact replacement Testnet account and its verified FullAccess key. The replacement is not activated until the 24-hour delay ends and that same account and key sign again. Cancellation requires the independent recovery code. MANDATE never asks for a seed phrase or private key.</span>
       </div>
     </section>
   );
