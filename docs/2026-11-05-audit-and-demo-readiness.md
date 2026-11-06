@@ -1,5 +1,19 @@
 # MANDATE audit and demo-readiness record
 
+## Current release status — 2026-11-06, post-merge
+
+**This status note supersedes earlier snapshots in this audit that describe PR #16 as open/draft, say the Phase 2 Meteor Wallet acknowledgement is still awaiting its first live browser test, or say a fresh PR workflow run is required before merging.** Those statements were true at earlier points in the investigation but are no longer current.
+
+- PR #15 (multi-wallet ownership and recovery hardening) remains merged.
+- PR #16 (Phase 2 counterparty-risk and proposal-bound owner WARN acknowledgement) was merged into `main` on 2026-11-06.
+- The merged `main` commit is `d26d20ea6209be7e88f8561f7c13de3f5ce357c6`.
+- The Phase 2 preview is READY for the tested PR head. The production Vercel build has been created from the merge commit; its final READY state and public demo alias still require confirmation.
+- Hosted Supabase records 25 migrations, including the five Phase 2 migrations. The `near-transfer-authorization` Edge Function is ACTIVE at v29 with JWT verification enabled. All eight deployed function source files matched the PR #16 source files byte-for-byte before merge.
+- The live Meteor Wallet proposal-bound WARN acknowledgement passed on the Phase 2 preview on 2026-11-06. The application displayed that the risk remained WARN and separate transaction approval was still required. No NEAR transfer was submitted during that verification.
+- A fresh real-wallet recovery-code reset round trip remains a separate outstanding test. The WARN-acknowledgement test does not prove the recovery-reset journey.
+- The merge has triggered fresh application and database workflows on `main`; these must complete successfully. Do not replay the hosted Phase 2 migrations or redeploy the already-matching Edge Function during release reconciliation.
+- Scope remains a controlled NEAR Testnet demo. Mainnet and public-production financial use are not approved.
+
 **Audit date:** 2026-11-05; updated 2026-11-06  
 **Repository:** `blessedorji3/mandate`  
 **Production/hosted Supabase project:** `abyyyehfivahedvjrcwj`  
@@ -136,3 +150,34 @@ The Supabase leaked-password-protection advisor finding remains a documented pre
 The following superseded implementation and diagnostic PRs are closed. Their branches, commits and discussions were not deleted: PR #5, #6, #7, #8, #9, #10, #11 and #12.
 
 PR #15 remains the merged multi-wallet/recovery baseline. PR #16 is the active Phase 2 candidate; the live Meteor owner-acknowledgement test passed on 2026-11-06. PR #2 remains open as a separate Testnet-transfer documentation item and is not a dependency of the Phase 2 demo.
+
+
+## Post-merge release reconciliation record — 2026-11-06
+
+### GitHub
+
+- PR #16 was marked ready for review and merged using expected head SHA `6dbd80efc14cbc5a44f9ebd3cd4ac8da988c6e30`.
+- Merge commit: `d26d20ea6209be7e88f8561f7c13de3f5ce357c6`.
+- The default branch `main` was read back and confirmed at that merge commit.
+- The PR-head application workflow and database integration workflow both completed successfully before merge. A fresh pair of push-triggered workflows also started for the merge commit; their final outcomes must be checked separately.
+
+### Supabase
+
+- Hosted migration ledger: 25 migrations, including the five Phase 2 migrations.
+- `near-transfer-authorization`: ACTIVE v29; `verify_jwt=true`.
+- The deployed function's eight source files matched the corresponding PR #16 files exactly before merge.
+- No migration replay or Edge Function redeployment was performed as part of this merge.
+
+### Vercel
+
+- The PR #16 preview was READY at commit `6dbd80efc14cbc5a44f9ebd3cd4ac8da988c6e30`.
+- A production deployment was created from `main` merge commit `d26d20ea6209be7e88f8561f7c13de3f5ce357c6`.
+- At the time this note was written, that production deployment was still BUILDING. The final deployment status and assignment of `mandate-snowy.vercel.app` must be confirmed before declaring all release surfaces reconciled.
+
+### Remaining release gates
+
+1. Confirm both post-merge GitHub workflows on `d26d20e` succeed.
+2. Confirm the Vercel production deployment reaches READY and the intended public demo domain resolves to it.
+3. Run a fresh real-wallet recovery-code reset separately, without initiating a recovery freeze or NEAR transfer.
+
+No additional NEAR transaction is needed for these release checks.
