@@ -31,6 +31,8 @@ export function RecoveryLifecyclePanel() {
   const connectorRef = useRef<NearConnector | null>(null);
   const [ready, setReady] = useState(false);
   const [accountId, setAccountId] = useState("");
+  const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
+  const [activeWalletAccountId, setActiveWalletAccountId] = useState<string | null>(null);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [replacementAccount, setReplacementAccount] = useState("");
   const [request, setRequest] = useState<RecoveryRequest | null>(null);
@@ -47,6 +49,9 @@ export function RecoveryLifecyclePanel() {
     const state = await recoveryRequest({ action: "recovery_lifecycle" });
     setHasHistory(state.hasWalletHistory === true);
     setCodeEstablished(state.codeEstablished === true && state.codeConsumed !== true);
+    setActiveWalletAccountId(
+      typeof state.activeWalletAccountId === "string" ? state.activeWalletAccountId : null,
+    );
     const next = state.request && state.request.status === "pending"
       ? state.request as RecoveryRequest : null;
     setRequest(next);
@@ -62,10 +67,22 @@ export function RecoveryLifecyclePanel() {
     let active = true;
     let connector: NearConnector | null = null;
     const onSignIn = (event: { accounts: Account[] }) => {
-      if (active) setAccountId(event.accounts[0]?.accountId ?? "");
+      if (!active) return;
+      const accounts = [...new Set(event.accounts
+        .map(account => account.accountId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0))];
+      setAvailableAccounts(accounts);
+      // Never silently choose the first account when the wallet exposes more
+      // than one. The user must select the intended replacement explicitly.
+      setAccountId(accounts.length === 1 ? accounts[0] : "");
+      if (accounts.length > 1) {
+        setNotice("Wallet connected. Choose the exact replacement account below.");
+      }
     };
     const onSignOut = () => {
-      if (active) setAccountId("");
+      if (!active) return;
+      setAccountId("");
+      setAvailableAccounts([]);
     };
     async function initialize() {
       try {
@@ -110,17 +127,47 @@ export function RecoveryLifecyclePanel() {
   async function connectReplacementWallet() {
     if (!ready || busy) return;
     setBusy(true); setError("");
+    setAccountId("");
+    setAvailableAccounts([]);
     try {
       const connector = connectorRef.current;
       if (!connector) throw new Error("NEAR Testnet wallet connector is unavailable.");
+
+      // A normal wallet connection may already be cached for this dApp origin.
+      // Clear that browser session first so the wallet can present a fresh
+      // account-selection/connection flow for the replacement wallet.
+      try {
+        const current = await connector.getConnectedWallet();
+        if (current.accounts.length > 0) await connector.disconnect();
+      } catch {
+        // No existing session is also a valid starting point.
+      }
+
+      setNotice("Previous wallet session cleared. Choose your intended replacement account in Meteor Wallet…");
       await connector.connect();
       const connected = await connector.getConnectedWallet();
-      const next = connected.accounts[0]?.accountId ?? "";
-      if (!next) throw new Error("No NEAR account was returned by the wallet.");
+      const accounts = [...new Set(connected.accounts
+        .map(account => account.accountId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0))];
+      if (accounts.length === 0) throw new Error("No NEAR account was returned by the wallet.");
+
+      setAvailableAccounts(accounts);
+      // A single returned account can be displayed immediately. When a wallet
+      // exposes multiple accounts, require an explicit selection below.
+      const next = accounts.length === 1 ? accounts[0] : "";
       setAccountId(next);
-      setNotice(`Replacement wallet connected: ${next}. It is not authorized yet.`);
+      if (next && next === activeWalletAccountId) {
+        setNotice(
+          `${next} is already the active MANDATE wallet. It cannot replace itself. Reconnect and choose a different Testnet account.`,
+        );
+      } else if (next) {
+        setNotice(`Replacement wallet selected: ${next}. It is not authorized yet.`);
+      } else {
+        setNotice("Wallet connected. Choose the exact replacement account below.");
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not connect replacement wallet.");
+      setNotice("No recovery request was started. Your registered wallets and funds are unchanged.");
     } finally { setBusy(false); }
   }
 
@@ -141,11 +188,19 @@ export function RecoveryLifecyclePanel() {
       network: "testnet",
       signerId: challenge.accountId,
     });
+    const signedAccountId = (signedMessage as { accountId?: unknown } | null)?.accountId;
+    if (signedAccountId !== challenge.accountId) {
+      throw new Error("The wallet signed with a different account than the selected replacement wallet. No recovery request was started.");
+    }
     return signedMessage;
   }
 
   async function startRecovery() {
-    if (busy || request || !codeEstablished || !hasHistory || !recoveryCode.trim()) return;
+    if (busy || request || !codeEstablished || !hasHistory || !recoveryCode.trim() || !accountId) return;
+    if (accountId === activeWalletAccountId) {
+      setError("Choose a different NEAR Testnet account. Your currently active MANDATE wallet cannot be its own replacement.");
+      return;
+    }
     setBusy(true); setError("");
     try {
       const challenge = await recoveryRequest({
@@ -248,11 +303,42 @@ export function RecoveryLifecyclePanel() {
         <div className="near-transfer-box">
           <p>To replace the wallet set after loss or compromise, connect a replacement NEAR Testnet wallet and provide your independent recovery code. This starts a 24-hour security delay. Finalization revokes every existing active wallet link in MANDATE and leaves only the replacement wallet active; it does not revoke on-chain keys or move funds.</p>
           <button className="outline-button" onClick={connectReplacementWallet} disabled={!ready || busy}>
-            {busy ? "Please wait…" : accountId ? `Connected: ${accountId}` : "Connect replacement wallet"}
+            {busy ? "Please wait…" : accountId ? "Switch / reconnect replacement wallet →" : "Connect replacement wallet →"}
           </button>
+          {availableAccounts.length > 0 && (
+            <>
+              <label htmlFor="recovery-replacement-account">Choose the replacement NEAR Testnet account</label>
+              <select
+                id="recovery-replacement-account"
+                value={accountId}
+                onChange={event => setAccountId(event.target.value)}
+                disabled={busy}
+              >
+                <option value="">Choose an account</option>
+                {availableAccounts.map(availableAccount => (
+                  <option
+                    key={availableAccount}
+                    value={availableAccount}
+                    disabled={availableAccount === activeWalletAccountId}
+                  >
+                    {availableAccount}{availableAccount === activeWalletAccountId ? " (currently active — cannot replace itself)" : ""}
+                  </option>
+                ))}
+              </select>
+              <p>
+                Current active MANDATE wallet: <code>{activeWalletAccountId ?? "Not available"}</code>.
+                Choose a different account. Selecting an account here does not start recovery.
+              </p>
+            </>
+          )}
+          {accountId && accountId === activeWalletAccountId && (
+            <p className="near-wallet-error" role="alert">
+              This is already the active MANDATE wallet. Reconnect and choose a different account.
+            </p>
+          )}
           <label htmlFor="recovery-start-code">Independent MANDATE recovery code</label>
           <input id="recovery-start-code" value={recoveryCode} onChange={event => setRecoveryCode(event.target.value.toUpperCase())} placeholder="MND-…" autoComplete="off" />
-          <button className="inspect-button" onClick={startRecovery} disabled={busy || !ready || !accountId || !recoveryCode.trim() || !codeEstablished}>
+          <button className="inspect-button" onClick={startRecovery} disabled={busy || !ready || !accountId || accountId === activeWalletAccountId || !recoveryCode.trim() || !codeEstablished}>
             {busy ? "Verifying recovery…" : "Start 24-hour wallet recovery →"}
           </button>
         </div>
