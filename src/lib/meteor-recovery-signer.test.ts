@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MeteorWallet } from "@meteorwallet/sdk";
 import {
+  connectExactMeteorRecoveryAccount,
   signExactMeteorRecoveryChallenge,
   type MeteorRecoverySigner,
 } from "@/lib/meteor-recovery-signer";
@@ -25,6 +26,32 @@ function signerReturning(response: {
     signMessage,
   };
 }
+
+describe("Meteor recovery account connection", () => {
+  it("connects MANDATE to the exact replacement account before message signing", async () => {
+    const requestSignIn = vi.fn(async (_input: Parameters<MeteorWallet["requestSignIn"]>[0]) => ({
+      success: true as const,
+      endTags: [],
+      payload: { accountId: challenge.accountId },
+    }));
+    const signer = { requestSignIn } as unknown as MeteorRecoverySigner;
+    await expect(connectExactMeteorRecoveryAccount(signer, challenge.accountId))
+      .resolves.toBe(challenge.accountId);
+    expect(requestSignIn).toHaveBeenCalledTimes(1);
+    expect(requestSignIn).toHaveBeenCalledWith({});
+  });
+
+  it("rejects a different account selected during Meteor connection", async () => {
+    const requestSignIn = vi.fn(async (_input: Parameters<MeteorWallet["requestSignIn"]>[0]) => ({
+      success: true as const,
+      endTags: [],
+      payload: { accountId: "old-wallet.testnet" },
+    }));
+    const signer = { requestSignIn } as unknown as MeteorRecoverySigner;
+    await expect(connectExactMeteorRecoveryAccount(signer, challenge.accountId))
+      .rejects.toThrow(/not the requested replacement account/);
+  });
+});
 
 describe("account-targeted Meteor recovery signing", () => {
   it("requests the exact replacement account on NEAR Testnet and omits callbackUrl", async () => {
