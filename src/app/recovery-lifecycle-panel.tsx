@@ -133,17 +133,13 @@ export function RecoveryLifecyclePanel() {
       const connector = connectorRef.current;
       if (!connector) throw new Error("NEAR Testnet wallet connector is unavailable.");
 
-      // A normal wallet connection may already be cached for this dApp origin.
-      // Clear that browser session first so the wallet can present a fresh
-      // account-selection/connection flow for the replacement wallet.
-      try {
-        const current = await connector.getConnectedWallet();
-        if (current.accounts.length > 0) await connector.disconnect();
-      } catch {
-        // No existing session is also a valid starting point.
-      }
-
-      setNotice("Previous wallet session cleared. Choose your intended replacement account in Meteor Wallet…");
+      // Do not automatically disconnect the normal wallet panel here.
+      // Meteor/Hot Connector can reuse a cached connectionUid after signOut;
+      // disconnecting alone is not a proven account-switch mechanism and may
+      // interrupt the user's normal wallet session without changing accounts.
+      // We connect, inspect the account actually returned, and fail closed if
+      // it is still the currently active MANDATE wallet.
+      setNotice("Requesting the replacement wallet. MANDATE will verify the account returned by Meteor…");
       await connector.connect();
       const connected = await connector.getConnectedWallet();
       const accounts = [...new Set(connected.accounts
