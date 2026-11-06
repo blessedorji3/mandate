@@ -49,10 +49,6 @@ function fromHex(value: string): Uint8Array {
   );
 }
 
-function validTestnetAccount(value: string) {
-  return /^[a-z0-9._-]{2,64}\.testnet$/.test(value);
-}
-
 export function RecoveryLifecyclePanel() {
   const { connector, setRecoveryMode } = useNearWalletConnector();
   const [ready, setReady] = useState(false);
