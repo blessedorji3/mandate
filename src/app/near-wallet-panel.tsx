@@ -125,7 +125,7 @@ export function NearWalletPanel({
   riskReviewRequired?: boolean;
 }) {
   const connectorRef = useRef<NearConnector | null>(null);
-  const sharedConnector = useNearWalletConnector();
+  const { connector: sharedConnector, recoveryMode } = useNearWalletConnector();
   const [accountId, setAccountId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -263,6 +263,7 @@ export function NearWalletPanel({
   }
 
   async function registerOwnerWallet() {
+    if (recoveryMode) return;
     const connector = connectorRef.current;
     if (!connector || !accountId || busy || txHash) return;
     setBusy(true); setError(""); setNotice("Creating a one-time wallet ownership challenge…");
@@ -574,7 +575,13 @@ export function NearWalletPanel({
           )}
         </div>
       )}
-      {accountId && !walletRegistered && (
+      {accountId && !walletRegistered && recoveryMode && (
+        <div className="near-transfer-box">
+          <strong>Replacement wallet selected</strong>
+          <p><code>{accountId}</code> is connected for the recovery process. Do not register it separately here; MANDATE will add it only after the 24-hour recovery is completed.</p>
+        </div>
+      )}
+      {accountId && !walletRegistered && !recoveryMode && (
         <div className="near-transfer-box">
           <strong>Register this wallet to your MANDATE account</strong>
           <p>A one-time NEP-413 signature proves you control this NEAR Testnet account. It does not move funds.</p>
