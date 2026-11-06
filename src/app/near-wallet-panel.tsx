@@ -173,8 +173,28 @@ export function NearWalletPanel({
       setTxHash("");
     };
 
+    const handleWalletInventoryChanged = () => {
+      void (async () => {
+        try {
+          const [connected, inventory] = await Promise.all([
+            connector.getConnectedWallet(),
+            refreshWallets(),
+          ]);
+          if (!active) return;
+          const restored = connected.accounts[0]?.accountId ?? null;
+          setAccountId(restored);
+          setWalletRegistered(
+            Boolean(restored && inventory.some(wallet => wallet.accountId === restored && wallet.active)),
+          );
+        } catch {
+          if (active) setWalletRegistered(false);
+        }
+      })();
+    };
+
     connector.on("wallet:signIn", handleSignIn);
     connector.on("wallet:signOut", handleSignOut);
+    window.addEventListener("mandate:wallet-inventory-changed", handleWalletInventoryChanged);
 
     async function initialize() {
       try {
@@ -213,6 +233,7 @@ export function NearWalletPanel({
       active = false;
       connector.off("wallet:signIn", handleSignIn);
       connector.off("wallet:signOut", handleSignOut);
+      window.removeEventListener("mandate:wallet-inventory-changed", handleWalletInventoryChanged);
       if (connectorRef.current === connector) connectorRef.current = null;
     };
   }, [sharedConnector]);
