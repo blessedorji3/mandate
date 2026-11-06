@@ -154,7 +154,7 @@ export function RecoveryLifecyclePanel() {
   }
 
   async function connectReplacementWallet() {
-    if (!connector || busy || !ready || request && secondsRemaining <= 0) return;
+    if (!connector || busy || !ready || challenge) return;
     setBusy(true);
     setError("");
     setChallenge(null);
@@ -163,6 +163,17 @@ export function RecoveryLifecyclePanel() {
     setRecoveryMode(true);
 
     try {
+      // Clear only the current browser-to-dApp wallet session before asking
+      // the owner to connect again. This calls the normal connector sign-out;
+      // it does not revoke any MANDATE database wallet link or NEAR on-chain key.
+      try {
+        const current = await connector.getConnectedWallet();
+        setNotice("Disconnecting the current browser wallet session. Your existing MANDATE wallet registration remains active…");
+        await connector.disconnect(current.wallet);
+      } catch {
+        // There may be no current wallet session. Continue to the normal picker.
+      }
+
       setNotice("Opening the normal NEAR Testnet wallet selector. Choose Meteor Wallet (or another Testnet wallet), then select the replacement account inside your wallet.");
 
       // Reuse the same normal NearConnector used by the main wallet panel.
@@ -237,6 +248,10 @@ export function RecoveryLifecyclePanel() {
     if (busy || !ready || !connector || request || !hasHistory || !codeEstablished) return;
     if (!accountId || !connectedAccounts.includes(accountId)) {
       setError("Connect a replacement wallet and select the account it returned before continuing.");
+      return;
+    }
+    if (!validTestnetAccount(accountId)) {
+      setError("The selected wallet account is not a valid NEAR Testnet account.");
       return;
     }
     if (!validTestnetAccount(accountId)) {
