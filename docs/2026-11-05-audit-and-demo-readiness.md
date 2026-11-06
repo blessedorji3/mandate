@@ -102,14 +102,24 @@ The current fixed target `confirmwithmandate.testnet` is reported as WARN becaus
 
 The owner acknowledgement is an intended stage in this design. A successful acknowledgement should record only that the owner reviewed this warning for this exact proposal. The separate transaction authorization and wallet confirmation remain in force.
 
-## What remains before demo sign-off
+## External wallet test and demo sign-off (updated 2026-11-06)
 
-1. Confirm GitHub application and database workflows pass on the newest branch head after migration-file alignment.
-2. Open the READY preview and hard-refresh.
-3. Generate a new inspected proposal; do not reuse earlier challenges.
-4. Complete one fresh Meteor Wallet risk acknowledgement within five minutes.
-5. Verify in the UI/logs that the acknowledgement is recorded for the exact proposal and that the transfer remains locked until normal wallet approval.
-6. Do not send the 0.001 NEAR transfer during this acknowledgement check. A transaction test needs separate explicit authorization.
+The final external Meteor Wallet acknowledgement round trip has now passed on the Phase 2 preview.
+
+- The application CI workflow and full database integration workflow both passed on branch head `bb6d91d89a83b8491c9ab3df8296f4946d8762ca`.
+- The maintainer connected the registered NEAR Testnet wallet, inspected a fresh proposal to `confirmwithmandate.testnet`, received the expected `WARN`, and completed the Meteor Wallet NEP-413 acknowledgement.
+- The browser displayed: “Risk acknowledgement recorded for this proposal only. The underlying risk outcome remains WARN; transaction approval is still required separately.”
+- The UI only displays that success state after the authorization endpoint returns `reviewed: true` and the response matches the exact proposal ID and risk-evidence fingerprint. This is stronger than merely observing that the wallet signature prompt closed.
+- The separate 0.001 NEAR transfer-approval control became available after acknowledgement. It was intentionally not activated. No NEAR transaction was submitted or broadcast as part of this check.
+
+The live demo can now demonstrate the end-to-end counterparty WARN acknowledgement using Meteor Wallet. The risk result remains WARN; acknowledgement is not transaction approval and cannot override BLOCK.
+
+## Remaining demo boundary
+
+- The successful test validates the proposal-bound owner acknowledgement only. The actual 0.001 NEAR transfer was deliberately not submitted during this validation and must not be described as tested in this browser session.
+- Keep the demo on NEAR Testnet with the fixed 0.001 NEAR recipient `confirmwithmandate.testnet`.
+- Do not merge any change that weakens the WARN/BLOCK gate, proposal binding, challenge expiry, one-time use, authenticated owner identity, or separate transaction approval.
+- Mainnet and public-production launch remain out of scope. This source/integration audit and successful browser round trip are not an independent penetration test or production security certification.
 
 ## Not approved
 
