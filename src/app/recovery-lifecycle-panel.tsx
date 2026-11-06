@@ -252,10 +252,6 @@ export function RecoveryLifecyclePanel() {
       setError("Connect a replacement wallet and select the account it returned before continuing.");
       return;
     }
-    if (!validTestnetAccount(accountId)) {
-      setError("The selected wallet account is not a valid NEAR Testnet account.");
-      return;
-    }
     const selectionError = validateReplacementWalletSelection({
       accountId,
       connectedAccountIds: connectedAccounts,
