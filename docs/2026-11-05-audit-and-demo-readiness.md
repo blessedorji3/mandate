@@ -1,6 +1,6 @@
 # MANDATE audit and demo-readiness record
 
-**Audit date:** 2026-11-05  
+**Audit date:** 2026-11-05; updated 2026-11-06  
 **Repository:** `blessedorji3/mandate`  
 **Production/hosted Supabase project:** `abyyyehfivahedvjrcwj`  
 **Demo scope:** NEAR Testnet only; no Mainnet assets.
@@ -38,13 +38,13 @@ This is a source and infrastructure audit, not a full independent penetration te
 | Item | State | Meaning |
 |---|---|---|
 | PR #15 multi-wallet release | Merged 2026-11-04 | Current merged release baseline; controlled rollout recorded in Supabase |
-| PR #16 Phase 2 owner WARN review | Open, draft | Current Phase 2 integration under test |
-| PR #5/#6/#11/#12 | Older drafts | Superseded by the merged multi-wallet release |
-| PR #8 | Earlier risk foundation | Historical implementation; PR #16 carries the active integration |
-| PR #9 | Open draft | Migration replay/history issue; the Phase 2 filename mismatch has now been corrected in the branch |
-| PR #10 | Open draft | Earlier explicit callback URL recovery-reset experiment; it is not the current Meteor adapter contract |
+| PR #16 Phase 2 owner WARN review | Open, draft | Active Phase 2 candidate; fresh Meteor acknowledgement now passed on the preview, with final CI rerun underway |
+| PR #2 Testnet transfer documentation | Open, non-draft | Separate documentation-only proof; not part of the Phase 2 release candidate |
+| PR #5–#12 (excluding #2) | Closed, not merged | Superseded implementation and diagnostic branches; commits and discussions remain available for audit |
 
-The older PR and review documents contain historical snapshots. Do not treat statements in an old section as the current live deployment state when a later dated section supersedes them.
+Specific supersessions: PR #5/#6/#7/#11/#12 were replaced by the merged multi-wallet/recovery release PR #15; PR #8 was the earlier risk foundation superseded by the PR #16 integration; PR #9's migration-history issue was corrected by aligning all five Phase 2 migration filenames to the hosted ledger and replaying the complete suite; PR #10's explicit-callback experiment was superseded by the verified Meteor adapter contract and Option::None test.
+
+The older PR and review documents contain historical snapshots. Treat them as implementation history, not as the current open-PR list or deployed state.
 
 ## Wallet dependency version pin
 
@@ -133,11 +133,6 @@ The Supabase leaked-password-protection advisor finding remains a documented pre
 
 ## PR and version cleanup performed during this audit
 
-The following obsolete drafts were closed with an explanatory comment. Their branches, commits and discussions were not deleted:
+The following superseded implementation and diagnostic PRs are closed. Their branches, commits and discussions were not deleted: PR #5, #6, #7, #8, #9, #10, #11 and #12.
 
-- PR #5 and PR #6: superseded by merged multi-wallet/recovery release PR #15.
-- PR #7: recovery-code-reset implementation is in the merged release line; its real Meteor browser test remains an external verification gate.
-- PR #9: superseded by the exact migration version alignment and clean replay/pgTAP workflow.
-- PR #10: superseded by the merged NEP-413 verifier that accepts only cryptographically valid callback forms, including Meteor's Option::None behavior.
-
-PR #8 remains open as the historical counterparty-risk foundation. PR #16 remains the single active Phase 2 implementation under test. PR #2 remains a historical Testnet-transfer documentation item.
+PR #15 remains the merged multi-wallet/recovery baseline. PR #16 is the active Phase 2 candidate; the live Meteor owner-acknowledgement test passed on 2026-11-06. PR #2 remains open as a separate Testnet-transfer documentation item and is not a dependency of the Phase 2 demo.
