@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
+import { useNearWalletConnector } from "@/app/near-wallet-connector-context";
 
 const TRANSFER = {
   receiverId: "confirmwithmandate.testnet",
@@ -124,6 +125,7 @@ export function NearWalletPanel({
   riskReviewRequired?: boolean;
 }) {
   const connectorRef = useRef<NearConnector | null>(null);
+  const sharedConnector = useNearWalletConnector();
   const [accountId, setAccountId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -146,8 +148,14 @@ export function NearWalletPanel({
 
   useEffect(() => {
     let active = true;
-    let connector: NearConnector | null = null;
+    const connector = sharedConnector;
+    if (!connector) {
+      connectorRef.current = null;
+      setReady(false);
+      return;
+    }
 
+    connectorRef.current = connector;
     const handleSignIn = (event: { accounts: Account[] }) => {
       if (!active) return;
       setAccountId(event.accounts[0]?.accountId ?? null);
@@ -161,21 +169,15 @@ export function NearWalletPanel({
       setAccountId(null);
       setWalletRegistered(false);
       setRiskReviewed(false);
-      setNotice("Wallet disconnected.");
+      setNotice("Wallet disconnected from this browser session. MANDATE wallet registrations are unchanged.");
       setTxHash("");
     };
 
+    connector.on("wallet:signIn", handleSignIn);
+    connector.on("wallet:signOut", handleSignOut);
+
     async function initialize() {
       try {
-        const { NearConnector } = await import("@hot-labs/near-connect");
-        connector = new NearConnector({
-          network: "testnet",
-          features: { testnet: true },
-          autoConnect: false
-        });
-        connectorRef.current = connector;
-        connector.on("wallet:signIn", handleSignIn);
-        connector.on("wallet:signOut", handleSignOut);
         await connector.whenManifestLoaded;
         if (!active) return;
         setReady(true);
@@ -209,12 +211,11 @@ export function NearWalletPanel({
     void initialize();
     return () => {
       active = false;
-      if (connector) {
-        connector.off("wallet:signIn", handleSignIn);
-        connector.off("wallet:signOut", handleSignOut);
-      }
+      connector.off("wallet:signIn", handleSignIn);
+      connector.off("wallet:signOut", handleSignOut);
+      if (connectorRef.current === connector) connectorRef.current = null;
     };
-  }, []);
+  }, [sharedConnector]);
 
   async function connectWallet() {
     const connector = connectorRef.current;
