@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Account, NearConnector } from "@hot-labs/near-connect";
 import { createClient } from "@/lib/supabase/client";
+import { useNearWalletConnector } from "@/app/near-wallet-connector-context";
 
 const TRANSFER = {
   receiverId: "confirmwithmandate.testnet",
@@ -124,6 +125,7 @@ export function NearWalletPanel({
   riskReviewRequired?: boolean;
 }) {
   const connectorRef = useRef<NearConnector | null>(null);
+  const { connector: sharedConnector, recoveryMode } = useNearWalletConnector();
   const [accountId, setAccountId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -146,8 +148,15 @@ export function NearWalletPanel({
 
   useEffect(() => {
     let active = true;
-    let connector: NearConnector | null = null;
+    const shared = sharedConnector;
+    if (!shared) {
+      connectorRef.current = null;
+      setReady(false);
+      return;
+    }
+    const connector: NearConnector = shared;
 
+    connectorRef.current = connector;
     const handleSignIn = (event: { accounts: Account[] }) => {
       if (!active) return;
       setAccountId(event.accounts[0]?.accountId ?? null);
@@ -161,21 +170,35 @@ export function NearWalletPanel({
       setAccountId(null);
       setWalletRegistered(false);
       setRiskReviewed(false);
-      setNotice("Wallet disconnected.");
+      setNotice("Wallet disconnected from this browser session. MANDATE wallet registrations are unchanged.");
       setTxHash("");
     };
 
+    const handleWalletInventoryChanged = () => {
+      void (async () => {
+        try {
+          const [connected, inventory] = await Promise.all([
+            connector.getConnectedWallet(),
+            refreshWallets(),
+          ]);
+          if (!active) return;
+          const restored = connected.accounts[0]?.accountId ?? null;
+          setAccountId(restored);
+          setWalletRegistered(
+            Boolean(restored && inventory.some(wallet => wallet.accountId === restored && wallet.active)),
+          );
+        } catch {
+          if (active) setWalletRegistered(false);
+        }
+      })();
+    };
+
+    connector.on("wallet:signIn", handleSignIn);
+    connector.on("wallet:signOut", handleSignOut);
+    window.addEventListener("mandate:wallet-inventory-changed", handleWalletInventoryChanged);
+
     async function initialize() {
       try {
-        const { NearConnector } = await import("@hot-labs/near-connect");
-        connector = new NearConnector({
-          network: "testnet",
-          features: { testnet: true },
-          autoConnect: false
-        });
-        connectorRef.current = connector;
-        connector.on("wallet:signIn", handleSignIn);
-        connector.on("wallet:signOut", handleSignOut);
         await connector.whenManifestLoaded;
         if (!active) return;
         setReady(true);
@@ -209,12 +232,12 @@ export function NearWalletPanel({
     void initialize();
     return () => {
       active = false;
-      if (connector) {
-        connector.off("wallet:signIn", handleSignIn);
-        connector.off("wallet:signOut", handleSignOut);
-      }
+      connector.off("wallet:signIn", handleSignIn);
+      connector.off("wallet:signOut", handleSignOut);
+      window.removeEventListener("mandate:wallet-inventory-changed", handleWalletInventoryChanged);
+      if (connectorRef.current === connector) connectorRef.current = null;
     };
-  }, []);
+  }, [sharedConnector]);
 
   async function connectWallet() {
     const connector = connectorRef.current;
@@ -262,6 +285,7 @@ export function NearWalletPanel({
   }
 
   async function registerOwnerWallet() {
+    if (recoveryMode) return;
     const connector = connectorRef.current;
     if (!connector || !accountId || busy || txHash) return;
     setBusy(true); setError(""); setNotice("Creating a one-time wallet ownership challenge…");
@@ -287,7 +311,7 @@ export function NearWalletPanel({
   async function revokeSelectedWallet() {
     const connector = connectorRef.current;
     const targetAccountId = walletToRevoke;
-    if (!connector || !accountId || !walletRegistered || !targetAccountId ||
+    if (recoveryMode || !connector || !accountId || !walletRegistered || !targetAccountId ||
         targetAccountId === accountId || busy) return;
     setBusy(true);
     setError("");
@@ -331,7 +355,7 @@ export function NearWalletPanel({
 
   async function reviewCounterpartyRisk() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || !proposalId ||
+    if (recoveryMode || !connector || !accountId || !walletRegistered || !proposalId ||
         !riskReviewRequired || busy || riskReviewed || txHash) return;
     setBusy(true);
     setError("");
@@ -419,7 +443,7 @@ export function NearWalletPanel({
 
   async function executeTestTransfer() {
     const connector = connectorRef.current;
-    if (!connector || !accountId || !walletRegistered || busy || txHash ||
+    if (recoveryMode || !connector || !accountId || !walletRegistered || busy || txHash ||
         (riskReviewRequired && !riskReviewed)) return;
     setBusy(true);
     setError("");
@@ -517,6 +541,11 @@ export function NearWalletPanel({
         <span className="muted-tag">TESTNET ONLY</span>
       </div>
       <div className="near-wallet-network"><span className="live-dot" /> NEAR TESTNET <span>·</span> Wallet-controlled signing</div>
+      {recoveryMode && (
+        <p className="near-wallet-notice" role="status">
+          Wallet replacement mode is active. Normal registration, wallet removal and transfer actions are paused while you select and verify the replacement wallet.
+        </p>
+      )}
       {accountId ? (
         <div className="near-wallet-connected">
           <span className="near-wallet-check">✓</span>
@@ -564,7 +593,7 @@ export function NearWalletPanel({
                     <option key={wallet.accountId} value={wallet.accountId}>{wallet.accountId}</option>
                   ))}
                 </select>
-                <button className="outline-button wallet-revoke-button" onClick={revokeSelectedWallet} disabled={busy || !walletRegistered || !walletToRevoke}>
+                <button className="outline-button wallet-revoke-button" onClick={revokeSelectedWallet} disabled={recoveryMode || busy || !walletRegistered || !walletToRevoke}>
                   {busy ? "Please wait…" : "Verify & remove selected wallet"}
                 </button>
               </div>
@@ -573,7 +602,13 @@ export function NearWalletPanel({
           )}
         </div>
       )}
-      {accountId && !walletRegistered && (
+      {accountId && !walletRegistered && recoveryMode && (
+        <div className="near-transfer-box">
+          <strong>Replacement wallet selected</strong>
+          <p><code>{accountId}</code> is connected for the recovery process. Do not register it separately here; MANDATE will add it only after the 24-hour recovery is completed.</p>
+        </div>
+      )}
+      {accountId && !walletRegistered && !recoveryMode && (
         <div className="near-transfer-box">
           <strong>Register this wallet to your MANDATE account</strong>
           <p>A one-time NEP-413 signature proves you control this NEAR Testnet account. It does not move funds.</p>
@@ -590,7 +625,7 @@ export function NearWalletPanel({
         <div className="near-transfer-box">
           <strong>Counterparty risk acknowledgement required</strong>
           <p>The destination received a WARN result. Your NEP-413 signature acknowledges this exact proposal and its current evidence fingerprint. It does not change WARN to ALLOW and does not approve a transaction.</p>
-          <button className="inspect-button" onClick={reviewCounterpartyRisk} disabled={busy || !proposalId || Boolean(txHash)}>
+          <button className="inspect-button" onClick={reviewCounterpartyRisk} disabled={recoveryMode || busy || !proposalId || Boolean(txHash)}>
             {busy ? "Preparing review…" : "Review warning & sign acknowledgement →"}
           </button>
           <p className="near-wallet-notice" role="status">The acknowledgement expires after five minutes and can be used once. A fresh risk check is required before authorization.</p>
@@ -606,7 +641,7 @@ export function NearWalletPanel({
             <strong>{proposalId ? "Owner-approved Agent Chat transfer" : "MANDATE-protected test transfer"}</strong>
             <p>{TRANSFER.amountLabel} to {TRANSFER.receiverId}</p>
           </div>
-          <button className="inspect-button" onClick={executeTestTransfer} disabled={busy || !walletRegistered || Boolean(txHash) || authorizationConsumed || (riskReviewRequired && !riskReviewed)}>
+          <button className="inspect-button" onClick={executeTestTransfer} disabled={recoveryMode || busy || !walletRegistered || Boolean(txHash) || authorizationConsumed || (riskReviewRequired && !riskReviewed)}>
             {busy ? "Working…" : txHash ? "Transaction submitted — sending locked" : authorizationConsumed ? "Authorization consumed — sending locked" : riskReviewRequired && !riskReviewed ? "Complete signed risk review first" : proposalId ? "Approve, sign & send this proposal →" : "Authorize & send test transfer →"}
           </button>
           <p className="near-wallet-notice" role="status">{notice}</p>

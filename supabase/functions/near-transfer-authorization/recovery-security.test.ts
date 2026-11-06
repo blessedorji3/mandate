@@ -131,6 +131,17 @@ Deno.test("requires the replacement account to differ from the active wallet", (
   assertEquals(isDifferentReplacementWallet(null, "new-wallet.testnet"), true);
 });
 
+Deno.test("matches the exact challenge-bound FullAccess public key, not another FullAccess key", () => {
+  const keys = [
+    { public_key: "ed25519:other-full-access", access_key: { permission: "FullAccess" } },
+    { public_key: "ed25519:limited-key", access_key: { permission: { FunctionCall: { receiver_id: "app.testnet", method_names: [] } } } },
+    { public_key: "ed25519:challenge-key", access_key: { permission: "FullAccess" } },
+  ];
+  assertEquals(findActiveFullAccessKey(keys, "ed25519:challenge-key")?.public_key, "ed25519:challenge-key");
+  assertEquals(findActiveFullAccessKey(keys, "ed25519:missing-key"), null);
+  assertEquals(findActiveFullAccessKey(keys, "ed25519:limited-key"), null);
+});
+
 async function signNep413(
   secretKey: Uint8Array,
   message: string,
