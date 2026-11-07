@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 
 type ApiKey = {
   id: string;
@@ -13,21 +12,10 @@ type ApiKey = {
 };
 
 const endpoint = "https://abyyyehfivahedvjrcwj.supabase.co/functions/v1/agent-inspect";
-const accountEndpoint = "https://abyyyehfivahedvjrcwj.supabase.co/functions/v1/near-transfer-authorization";
-
 async function accountAction(payload: Record<string, unknown>) {
-  const supabase = createClient();
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !session?.access_token) {
-    throw new Error("Sign in before managing API keys.");
-  }
-
-  const response = await fetch(accountEndpoint, {
+  const response = await fetch("/api/developer-keys", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   let result: unknown;
