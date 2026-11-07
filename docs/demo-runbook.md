@@ -2,8 +2,8 @@
 
 **Demo type:** controlled browser demonstration  
 **Environment:** NEAR Testnet only  
-**Verified:** 2026-11-07 — live Meteor Wallet proposal-bound WARN acknowledgement and recovery-code reset  
-**Transaction status:** WARN acknowledgement and recovery-code reset were signed-message operations; neither sent a NEAR transfer. A fixed 0.001 NEAR Testnet transfer is a separate, optional owner-approved demo step.
+**Verified:** 2026-11-07 — live Meteor Wallet WARN acknowledgement, recovery-code reset and fixed Testnet transfer  
+**Transaction status:** the fixed 0.001 NEAR Testnet transfer to `confirmwithmandate.testnet` was completed and independently verified by MANDATE on 2026-11-07. The WARN acknowledgement and recovery reset were separate signed-message operations.
 
 ## What this demo proves
 
@@ -53,7 +53,7 @@ The expected UI message is:
 
 > “Risk acknowledgement recorded for this proposal only. The underlying risk outcome remains WARN; transaction approval is still required separately.”
 
-Show that the separate transfer approval control is now available. Explain that acknowledgement and execution are different steps, and stop here. **Do not select “Approve, sign & send this proposal”.** No transaction is needed for this demo.
+Show that the separate transfer approval control is now available. Explain that acknowledgement and execution are different steps. For an acknowledgement-only presentation, stop here. For the full execution demo, continue to the verified transfer section below and only proceed with the exact fixed proposal after checking the wallet prompt.
 
 ### 5. Close with the security guarantees
 
@@ -89,7 +89,7 @@ A revoked wallet shown in the wallet inventory is an inactive historical link; d
 - Do not claim that this acknowledgement sends funds or equals transaction approval.
 - Do not claim that the current chat is powered by an LLM.
 - Do not claim arbitrary transfers, swaps, token approvals, or arbitrary contract calls are executable.
-- Do not claim the live 0.001 NEAR transfer was tested as part of the acknowledgement verification. It was intentionally not submitted.
+- Do explain that the live 0.001 NEAR transfer was completed in a separate owner-approved step after the WARN acknowledgement; do not imply that the acknowledgement itself authorized or sent it.
 
 ## Recovery-code reset verification
 
@@ -101,7 +101,7 @@ The separate real-wallet recovery-code reset completed on 2026-11-07 using the c
 - The reset did not change the registered wallet, start the 24-hour wallet-recovery process, or send funds.
 - The owner must store the newly issued recovery code privately. Do not ask the judge or another operator to reproduce the reset, and never include the recovery code in the recording.
 
-## Optional fixed Testnet transfer demonstration
+## Verified fixed Testnet transfer demonstration
 
 After showing the policy decision and completing any required WARN acknowledgement, the operator may show the separate execution path only when the owner intentionally wants to demonstrate an on-chain action.
 
@@ -112,4 +112,13 @@ After showing the policy decision and completing any required WARN acknowledgeme
 5. Review the transaction in the wallet and approve it there. This is the only step in this optional path that broadcasts the Testnet transfer.
 6. Show MANDATE's final on-chain verification and the linked Testnet transaction.
 
-Do not run this step as a surprise, do not substitute a recipient or amount, and do not repeat the transfer when a transaction hash has already been returned. A retry must verify the same hash rather than broadcast again. If the policy decision is BLOCK, stop; a WARN acknowledgement does not override BLOCK.
+### Completed live verification evidence
+
+- Policy decision: `REQUIRE_APPROVAL`.
+- Counterparty risk: `WARN`; the owner completed the separate signed acknowledgement for this exact proposal.
+- The owner then separately approved the transfer in the NEAR Testnet wallet.
+- MANDATE displayed: **“Verified on NEAR Testnet: the exact 0.001 NEAR transfer reached the confirmed recipient.”**
+- Transaction hash: `E15kvDEWuy8BxiDGqZz1sZFW4KWxM4BC7RWHQLVfRemv`.
+- Hosted Supabase authorization receipt recorded `network=testnet`, `receiver_id=confirmwithmandate.testnet`, `asset=NEAR`, `amount_atomic=1000000000000000000000`, `action_type=transfer`, `consumed_at` populated, matching transaction hash, and `verified_at=2026-11-07 22:27:22.345226+00`.
+
+This transaction is complete. **Do not submit another transfer for the recording.** Show this already verified result and transaction reference. If an existing transaction ever needs a retry, verify the same hash rather than broadcasting again. If the policy decision is BLOCK, stop; a WARN acknowledgement does not override BLOCK.
