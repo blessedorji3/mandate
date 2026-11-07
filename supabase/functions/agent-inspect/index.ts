@@ -3,6 +3,7 @@ import { evaluateAction } from "../../../src/security/evaluate-action.ts";
 import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
 import { combinePolicyAndCounterpartyRisk } from "../../../src/security/inspection-risk.ts";
 import type { SecurityPolicy } from "../../../src/security/types.ts";
+import { readBoundedRequestText, RequestBodyTooLargeError } from "../../../src/security/read-bounded-request-body.ts";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -16,8 +17,13 @@ function nonEmpty(value: unknown): value is string {
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
-  const contentLength = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 16_384) return json({ error: "Request too large." }, 413);
+  let rawBody: string;
+  try {
+    rawBody = await readBoundedRequestText(req, 16_384);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return json({ error: "Request too large." }, 413);
+    return json({ error: "Request body must be valid UTF-8." }, 400);
+  }
 
   const auth = req.headers.get("authorization") ?? "";
   const match = auth.match(/^Bearer (mnd_live_[A-Za-z0-9_-]{32,})$/);
@@ -53,9 +59,7 @@ Deno.serve(async (req: Request) => {
 
   let body: unknown;
   try {
-    const raw = await req.text();
-    if (new TextEncoder().encode(raw).byteLength > 16_384) return json({ error: "Request too large." }, 413);
-    body = JSON.parse(raw);
+    body = JSON.parse(rawBody);
   } catch {
     return json({ error: "Request body must be valid JSON." }, 400);
   }
