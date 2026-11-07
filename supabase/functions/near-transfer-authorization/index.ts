@@ -391,7 +391,7 @@ export async function handleRequest(req: Request) {
       }
       const randomBytes = crypto.getRandomValues(new Uint8Array(32));
       const randomPart = btoa(Array.from(randomBytes, (byte) => String.fromCharCode(byte)).join(""))
-        .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
       const apiKey = "mnd_live_" + randomPart;
       const keyHash = hex(await sha256(encoder.encode(apiKey)));
       const { data, error } = await admin.from("api_keys")
@@ -494,7 +494,7 @@ export async function handleRequest(req: Request) {
           !["transfer", "token_approval", "swap", "contract_call"].includes(proposal.actionType) ||
           typeof proposal.asset !== "string" || proposal.asset.trim().length < 1 || proposal.asset.length > 32 ||
           typeof proposal.amountAtomic !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(proposal.amountAtomic) ||
-          typeof proposal.target !== "string" || !/^[a-z0-9._-]{2,64}\\.testnet$/.test(proposal.target) ||
+          typeof proposal.target !== "string" || !/^[a-z0-9._-]{2,64}\.testnet$/.test(proposal.target) ||
           (proposal.network !== undefined && typeof proposal.network !== "string") ||
           (proposal.protocol !== undefined &&
             (typeof proposal.protocol !== "string" || proposal.protocol.length < 1 || proposal.protocol.length > 128)) ||
