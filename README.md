@@ -27,7 +27,7 @@ Open **[mandate-snowy.vercel.app](https://mandate-snowy.vercel.app)**.
 
 - A MANDATE account.
 - A compatible NEAR wallet with a **NEAR Testnet** account.
-- Testnet NEAR for the optional 0.001 NEAR demonstration transfer.
+- Testnet NEAR for the fixed 0.001 NEAR demonstration transfer.
 - An active MANDATE security policy that permits transfers, includes `confirmwithmandate.testnet` as an approved recipient, has a maximum amount of at least 0.001 NEAR, and requires owner approval.
 
 ### Recommended demonstration
@@ -48,6 +48,19 @@ Open **[mandate-snowy.vercel.app](https://mandate-snowy.vercel.app)**.
 9. Confirm the result in MANDATE and open the linked NEAR Testnet transaction explorer entry.
 
 **Do not submit the transfer again if the wallet has already returned a transaction hash.** Use the app's verification-only retry control if it is offered; it checks the existing hash and does not submit another transfer.
+
+### Live Testnet execution verification — 2026-11-07
+
+The constrained Agent Chat execution path was completed successfully using the registered NEAR Testnet wallet.
+
+- Proposal decision: `REQUIRE_APPROVAL`; counterparty result: `WARN`.
+- The owner completed the separate, proposal-bound NEP-413 risk acknowledgement, then separately approved the transaction in the wallet.
+- MANDATE's server-side verifier confirmed the exact `0.001 NEAR` transfer to `confirmwithmandate.testnet` on NEAR Testnet and bound its hash to the consumed authorization receipt.
+- Verified transaction hash: `E15kvDEWuy8BxiDGqZz1sZFW4KWxM4BC7RWHQLVfRemv`.
+- Hosted receipt verification timestamp: `2026-11-07 22:27:22 UTC`.
+
+This is evidence of the fixed Testnet demonstration path only. Do not repeat this transfer for the recording; show the existing verified result and transaction reference. No Mainnet transfer was made.
+
 
 ### Security checks to demonstrate
 
