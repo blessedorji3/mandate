@@ -98,9 +98,9 @@ RLS was enabled on the private wallet, recovery, transfer-receipt, and counterpa
 
 After approval, keep these steps coordinated:
 
-1. Deploy the updated `near-transfer-authorization` Edge Function (the next deployment should be v31).
+1. Deploy the updated `near-transfer-authorization` Edge Function (the next deployment should be v31) and the updated `agent-inspect` function (the next deployment should be v6).
 2. Deploy the updated web app so inspection and key management use the new Edge Function actions.
 3. Apply `20261107203500_revoke_browser_decision_receipt_inserts.sql`.
-4. Verify proposal inspection, key list/create/revoke, browser database grants, and the fixed Testnet transfer flow.
+4. Verify proposal inspection, key list/create/revoke, browser database grants, bounded-body rejection, and the fixed Testnet transfer flow.
 
 Do not apply the privilege migration while the old web app is still the active version: the old inspection route writes directly to `authorization_decisions`. Do not treat this Testnet audit as Mainnet approval.
