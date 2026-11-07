@@ -2,8 +2,8 @@
 
 **Demo type:** controlled browser demonstration  
 **Environment:** NEAR Testnet only  
-**Verified:** 2026-11-06 — Meteor Wallet proposal-bound counterparty WARN acknowledgement  
-**Transaction status:** no NEAR transfer was submitted during the verified acknowledgement test
+**Verified:** 2026-11-07 — live Meteor Wallet proposal-bound WARN acknowledgement and recovery-code reset  
+**Transaction status:** WARN acknowledgement and recovery-code reset were signed-message operations; neither sent a NEAR transfer. A fixed 0.001 NEAR Testnet transfer is a separate, optional owner-approved demo step.
 
 ## What this demo proves
 
@@ -13,7 +13,7 @@ The current Agent Chat is a deterministic command-parser prototype, not an LLM-p
 
 ## Pre-demo checklist
 
-- Open the Phase 2 preview: https://mandate-git-feat-phase-2-counterparty-risk-web3pass.vercel.app
+- Open the current MANDATE demo: https://mandate-snowy.vercel.app
 - Sign in to the designated MANDATE demo account.
 - Connect the intended NEAR Testnet wallet.
 - Confirm the page says the currently connected wallet is registered and verified for this signed-in MANDATE account.
@@ -77,7 +77,7 @@ The parser rejection is not an LLM prompt-injection test.
 
 1. Stop. Do not reuse an earlier challenge or keep retrying a consumed signature.
 2. Run **Inspect** again to create a fresh proposal and risk challenge.
-3. Confirm the browser is using the Phase 2 preview, the wallet is on NEAR Testnet, and the currently connected wallet is shown as registered and verified for the signed-in MANDATE account.
+3. Confirm the browser is using the current MANDATE demo, the wallet is on NEAR Testnet, and the currently connected wallet is shown as registered and verified for the signed-in MANDATE account.
 4. Complete the wallet acknowledgement within five minutes.
 5. If it fails again, capture the exact error and stop for diagnosis. Do not weaken signature verification, callback checks, owner binding, expiry, or replay protection.
 
@@ -90,3 +90,26 @@ A revoked wallet shown in the wallet inventory is an inactive historical link; d
 - Do not claim that the current chat is powered by an LLM.
 - Do not claim arbitrary transfers, swaps, token approvals, or arbitrary contract calls are executable.
 - Do not claim the live 0.001 NEAR transfer was tested as part of the acknowledgement verification. It was intentionally not submitted.
+
+## Recovery-code reset verification
+
+The separate real-wallet recovery-code reset completed on 2026-11-07 using the current MANDATE wallet page.
+
+- The official NEAR NEP-413 diagnostic displayed **SIGNATURE VALID**.
+- The wallet signing diagnostic displayed **RESET VERIFIED**.
+- The page confirmed Supabase accepted the signature and completed the one-time recovery-credential rotation.
+- The reset did not change the registered wallet, start the 24-hour wallet-recovery process, or send funds.
+- The owner must store the newly issued recovery code privately. Do not ask the judge or another operator to reproduce the reset, and never include the recovery code in the recording.
+
+## Optional fixed Testnet transfer demonstration
+
+After showing the policy decision and completing any required WARN acknowledgement, the operator may show the separate execution path only when the owner intentionally wants to demonstrate an on-chain action.
+
+1. Confirm the connected signer is the active, verified owner wallet on **NEAR Testnet**.
+2. Confirm the proposal is exactly **0.001 NEAR to `confirmwithmandate.testnet`**.
+3. Confirm the active policy permits this exact fixed transfer and requires owner approval.
+4. Select **Approve, sign & send this proposal** only after checking the amount, recipient and Testnet network in MANDATE.
+5. Review the transaction in the wallet and approve it there. This is the only step in this optional path that broadcasts the Testnet transfer.
+6. Show MANDATE's final on-chain verification and the linked Testnet transaction.
+
+Do not run this step as a surprise, do not substitute a recipient or amount, and do not repeat the transfer when a transaction hash has already been returned. A retry must verify the same hash rather than broadcast again. If the policy decision is BLOCK, stop; a WARN acknowledgement does not override BLOCK.
