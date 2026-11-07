@@ -104,3 +104,18 @@ After approval, keep these steps coordinated:
 4. Verify proposal inspection, key list/create/revoke, browser database grants, bounded-body rejection, and the fixed Testnet transfer flow.
 
 Do not apply the privilege migration while the old web app is still the active version: the old inspection route writes directly to `authorization_decisions`. Do not treat this Testnet audit as Mainnet approval.
+
+## Post-audit release verification — 2026-11-07
+
+The following steps were completed after the initial audit record above was written:
+
+- A fresh recovery-code reset was completed through the MANDATE preview with the connected NEAR Testnet wallet. The UI reported **Official NEAR NEP-413: SIGNATURE VALID** and **Wallet signing diagnostics: RESET VERIFIED**; the latter confirms Supabase accepted the signature and confirmed the one-time credential rotation.
+- The active `near-transfer-authorization` Edge Function is now v32 with `verify_jwt=true`. The v32 source includes the exact `security/final-audit-hardening` preview origin in its HTTPS allowlist. This followed an initial v31 deployment; v32 is the currently active version.
+- The active `agent-inspect` Edge Function is v6 with `verify_jwt=false`, preserving its own `mnd_live_` API-key authentication.
+- The Vercel preview built from the final PR head is READY.
+- GitHub application checks workflow #590 and database/security workflow #455 both completed successfully. The Vercel commit status is successful.
+- PR #18 is still open and unmerged at the time of this update.
+- The privilege migration `20261107203500_revoke_browser_decision_receipt_inserts.sql` has **not** yet been applied to the hosted database. Until that coordinated release step, the live database still allows `authenticated` INSERT on `public.authorization_decisions`; this remaining gap must be closed after the updated app is deployed.
+- No NEAR Mainnet use, Mainnet transaction, or arbitrary on-chain action was enabled. MANDATE remains a controlled NEAR Testnet demo.
+
+The earlier sections describe the implementation state at the time of the initial audit; this post-audit section records the subsequent deployment and live-wallet verification.
