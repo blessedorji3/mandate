@@ -158,3 +158,18 @@ The Supabase health advisor returned no findings. The security advisor still rep
 ### Final boundary
 
 MANDATE remains a controlled NEAR Testnet demo. The audited transfer adapter remains fixed to 0.001 NEAR and `confirmwithmandate.testnet`. This release does not authorize Mainnet deployment, arbitrary contract calls, swaps, or unrestricted agent transactions.
+
+## Live Testnet execution proof — 2026-11-07
+
+The fixed wallet execution journey was subsequently completed successfully through the released MANDATE Agent Chat and the registered NEAR Testnet wallet.
+
+- Agent Chat inspected the exact proposal: `0.001 NEAR` to `confirmwithmandate.testnet`.
+- The active policy returned `REQUIRE_APPROVAL`; counterparty assessment returned `WARN` because matching account-age creation evidence was unavailable.
+- The owner completed a separate, proposal-bound NEP-413 acknowledgement of the WARN result. The risk result remained WARN; the acknowledgement did not change it to ALLOW and did not itself authorize a transaction.
+- The owner separately approved the exact transaction in the NEAR Testnet wallet.
+- MANDATE's UI reported: **“Verified on NEAR Testnet: the exact 0.001 NEAR transfer reached the confirmed recipient.”**
+- Transaction hash: `E15kvDEWuy8BxiDGqZz1sZFW4KWxM4BC7RWHQLVfRemv`.
+- The hosted `mandate_private.near_transfer_receipts` record was independently queried and confirmed: `network=testnet`, `receiver_id=confirmwithmandate.testnet`, `asset=NEAR`, `amount_atomic=1000000000000000000000` (0.001 NEAR), `action_type=transfer`, authorization consumed, matching `transaction_hash`, `verified_at=2026-11-07 22:27:22.345226+00`, and no invalidation timestamp.
+- No Mainnet transfer was made.
+
+This closes the live wallet execution proof for the constrained Testnet demo. The verified transfer should be shown in the demo recording rather than repeated. MANDATE remains a controlled Testnet prototype, not a production financial product or Mainnet authorization system.
