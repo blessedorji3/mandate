@@ -40,6 +40,26 @@ select ok(
   'service role retains access required by the Edge Function'
 );
 
+select ok(
+  not has_table_privilege('anon','public.authorization_decisions','INSERT')
+  and not has_table_privilege('authenticated','public.authorization_decisions','INSERT'),
+  'browser roles cannot forge owner-scoped authorization decision receipts'
+);
+select ok(
+  has_table_privilege('service_role','public.authorization_decisions','INSERT'),
+  'trusted service role retains decision receipt insertion capability'
+);
+select ok(
+  not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'authorization_decisions'
+      and cmd = 'INSERT'
+      and ('anon' = any(roles) or 'authenticated' = any(roles) or 'public' = any(roles))
+  ),
+  'no browser or public INSERT policy remains on authorization decision receipts'
+);
+
 -- Owner A: establish an independent recovery code and register the first wallet.
 select is(
   public.create_near_wallet_recovery_setup_challenge_v1(
