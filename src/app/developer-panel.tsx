@@ -3,12 +3,45 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-type ApiKey = { id: string; name: string; key_prefix: string; created_at: string; last_used_at: string | null; revoked_at: string | null };
-const endpoint = "https://abyyyehfivahedvjrcwj.supabase.co/functions/v1/agent-inspect";
+type ApiKey = {
+  id: string;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+};
 
-async function sha256(value: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, "0")).join("");
+const endpoint = "https://abyyyehfivahedvjrcwj.supabase.co/functions/v1/agent-inspect";
+const accountEndpoint = "https://abyyyehfivahedvjrcwj.supabase.co/functions/v1/near-transfer-authorization";
+
+async function accountAction(payload: Record<string, unknown>) {
+  const supabase = createClient();
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) {
+    throw new Error("Sign in before managing API keys.");
+  }
+
+  const response = await fetch(accountEndpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  let result: unknown;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error("The API-key service returned an invalid response.");
+  }
+  if (!response.ok || !result || typeof result !== "object" || Array.isArray(result)) {
+    const message = result && typeof result === "object" && "error" in result &&
+      typeof result.error === "string" ? result.error : "API-key operation failed.";
+    throw new Error(message);
+  }
+  return result as Record<string, unknown>;
 }
 
 export function DeveloperPanel() {
@@ -19,49 +52,55 @@ export function DeveloperPanel() {
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
-    const supabase = createClient();
-    const { data, error } = await supabase.from("api_keys")
-      .select("id,name,key_prefix,created_at,last_used_at,revoked_at")
-      .order("created_at", { ascending: false }).limit(20);
-    if (error) throw error;
-    setKeys((data ?? []) as ApiKey[]);
+    const result = await accountAction({ action: "api_keys_list" });
+    if (!Array.isArray(result.keys)) {
+      throw new Error("The API-key service returned an invalid key list.");
+    }
+    setKeys(result.keys as ApiKey[]);
   }
 
-  useEffect(() => { refresh().then(() => setMessage("Your API keys are private to your account.")).catch(() => setMessage("Could not load API keys. Please refresh.")); }, []);
+  useEffect(() => {
+    refresh()
+      .then(() => setMessage("Your API keys are private to your account."))
+      .catch(() => setMessage("Could not load API keys. Please refresh."));
+  }, []);
 
   async function createKey() {
-    if (!name.trim() || name.trim().length > 80) { setMessage("Give this key a name between 1 and 80 characters."); return; }
-    setBusy(true); setMessage(""); setNewKey("");
+    if (!name.trim() || name.trim().length > 80) {
+      setMessage("Give this key a name between 1 and 80 characters.");
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    setNewKey("");
     try {
-      const supabase = createClient();
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) throw new Error("Sign in before creating an API key.");
-      const bytes = crypto.getRandomValues(new Uint8Array(32));
-      const random = btoa(Array.from(bytes, b => String.fromCharCode(b)).join("")).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-      const secret = "mnd_live_" + random;
-      const hash = await sha256(secret);
-      const { error } = await supabase.from("api_keys").insert({
-        owner_id: user.id, name: name.trim(), key_prefix: secret.slice(0, 18), key_hash: hash
-      });
-      if (error) throw error;
-      setNewKey(secret);
+      const result = await accountAction({ action: "api_key_create", name: name.trim() });
+      if (typeof result.apiKey !== "string" || !result.apiKey.startsWith("mnd_live_")) {
+        throw new Error("The API-key service did not return a valid one-time secret.");
+      }
+      setNewKey(result.apiKey);
       await refresh();
       setMessage("API key created. Copy it now; MANDATE will not show it again.");
-    } catch (e) { setMessage(e instanceof Error ? e.message : "Could not create API key."); }
-    finally { setBusy(false); }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create API key.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function revoke(id: string) {
-    setBusy(true); setMessage("");
+    setBusy(true);
+    setMessage("");
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from("api_keys").update({ revoked_at: new Date().toISOString() }).eq("id", id).is("revoked_at", null);
-      if (error) throw error;
+      await accountAction({ action: "api_key_revoke", keyId: id });
       await refresh();
       setMessage("API key revoked. Requests using it will now be rejected.");
-      if (newKey) setNewKey("");
-    } catch (e) { setMessage(e instanceof Error ? e.message : "Could not revoke API key."); }
-    finally { setBusy(false); }
+      setNewKey("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not revoke API key.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return <section className="panel developer-panel" id="developers">
@@ -87,7 +126,8 @@ export function DeveloperPanel() {
       actionType: "transfer",
       asset: "NEAR",
       amountAtomic: "200000000000000000000000",
-      target: "alice.near"
+      target: "alice.near",
+      network: "testnet"
     }
   })
 });
