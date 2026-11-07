@@ -1,6 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
+import { evaluateAction } from "../../../src/security/evaluate-action.ts";
+import { combinePolicyAndCounterpartyRisk } from "../../../src/security/inspection-risk.ts";
+import type { AuthorizationDecision, SecurityPolicy } from "../../../src/security/types.ts";
 import { assessCounterpartyRisk } from "../../../src/security/counterparty-risk-service.ts";
 import { fingerprintCounterpartyRisk } from "../../../src/security/counterparty-risk-review.ts";
+import { readBoundedRequestText, RequestBodyTooLargeError } from "../../../src/security/read-bounded-request-body.ts";
 import { findActiveFullAccessKey, isDifferentReplacementWallet, recoveryChallengeMatches, verifyNep413, verifyNep413WithOptionalCallback } from "./recovery-security.ts";
 
 const PROJECT_URL = Deno.env.get("SUPABASE_URL")!;
@@ -351,17 +355,80 @@ export async function handleRequest(req: Request) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
+  let rawBody: string;
+  try {
+    rawBody = await readBoundedRequestText(req, 12_000);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return reply({ error: "Request too large." }, 413);
+    }
+    return reply({ error: "Request body must be valid UTF-8." }, 400);
+  }
+
   let body: unknown;
   try {
-    const raw = await req.text();
-    if (encoder.encode(raw).length > 12_000) return reply({ error: "Request too large." }, 413);
-    body = JSON.parse(raw);
+    body = JSON.parse(rawBody);
   } catch {
     return reply({ error: "Request body must be valid JSON." }, 400);
   }
   if (!isRecord(body) || typeof body.action !== "string") return reply({ error: "An action is required." }, 400);
 
   try {
+    if (body.action === "api_keys_list") {
+      const { data, error } = await admin.from("api_keys")
+        .select("id, name, key_prefix, created_at, last_used_at, revoked_at")
+        .eq("owner_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error) throw new Error("Could not load API keys");
+      return reply({ keys: data ?? [] });
+    }
+
+    if (body.action === "api_key_create") {
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      if (name.length < 1 || name.length > 80) {
+        return reply({ error: "Give this API key a name between 1 and 80 characters." }, 400);
+      }
+      const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+      const randomPart = btoa(Array.from(randomBytes, (byte) => String.fromCharCode(byte)).join(""))
+        .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+      const apiKey = "mnd_live_" + randomPart;
+      const keyHash = hex(await sha256(encoder.encode(apiKey)));
+      const { data, error } = await admin.from("api_keys")
+        .insert({
+          owner_id: user.id,
+          name,
+          key_prefix: apiKey.slice(0, 18),
+          key_hash: keyHash,
+        })
+        .select("id, name, key_prefix, created_at, last_used_at, revoked_at")
+        .single();
+      if (error || !data) throw new Error("Could not create API key");
+      return reply({
+        apiKey,
+        key: data,
+        message: "Copy this API key now. MANDATE will not display it again.",
+      }, 201);
+    }
+
+    if (body.action === "api_key_revoke") {
+      const keyId = body.keyId;
+      if (typeof keyId !== "string" ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(keyId)) {
+        return reply({ error: "A valid API key ID is required." }, 400);
+      }
+      const { data, error } = await admin.from("api_keys")
+        .update({ revoked_at: new Date().toISOString() })
+        .eq("id", keyId)
+        .eq("owner_id", user.id)
+        .is("revoked_at", null)
+        .select("id")
+        .maybeSingle();
+      if (error) throw new Error("Could not revoke API key");
+      if (!data) return reply({ error: "API key not found or already revoked." }, 404);
+      return reply({ revoked: true, keyId: data.id });
+    }
+
     if (body.action === "counterparty_inspect") {
       const proposal = body.proposal;
       if (!isRecord(proposal) ||
@@ -413,6 +480,112 @@ export async function handleRequest(req: Request) {
         risk: riskAssessment.decision,
         riskCollection: riskAssessment.collection,
         counterpartyRiskFingerprint,
+        policy: { id: policy.id, version: policy.version },
+      });
+    }
+
+    if (body.action === "inspect_proposal") {
+      const proposal = body.proposal;
+      if (!isRecord(proposal) ||
+          typeof proposal.id !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(proposal.id) ||
+          (proposal.agentId !== undefined &&
+            (typeof proposal.agentId !== "string" || proposal.agentId.trim().length < 1 || proposal.agentId.length > 128)) ||
+          typeof proposal.actionType !== "string" ||
+          !["transfer", "token_approval", "swap", "contract_call"].includes(proposal.actionType) ||
+          typeof proposal.asset !== "string" || proposal.asset.trim().length < 1 || proposal.asset.length > 32 ||
+          typeof proposal.amountAtomic !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(proposal.amountAtomic) ||
+          typeof proposal.target !== "string" || !/^[a-z0-9._-]{2,64}\\.testnet$/.test(proposal.target) ||
+          (proposal.network !== undefined && typeof proposal.network !== "string") ||
+          (proposal.protocol !== undefined &&
+            (typeof proposal.protocol !== "string" || proposal.protocol.length < 1 || proposal.protocol.length > 128)) ||
+          (proposal.approvalAmountAtomic !== undefined &&
+            (typeof proposal.approvalAmountAtomic !== "string" ||
+              !/^(0|[1-9][0-9]{0,77})$/.test(proposal.approvalAmountAtomic)))) {
+        return reply({ error: "A valid NEAR Testnet proposal is required for inspection." }, 400);
+      }
+
+      const policyRow = await getPolicy(admin, user.id);
+      if (!policyRow) return reply({ error: "Create and activate a security policy before inspecting an action." }, 409);
+      const policy: SecurityPolicy = {
+        id: policyRow.id,
+        version: policyRow.version,
+        active: policyRow.active,
+        maxAmountAtomic: policyRow.max_amount_atomic,
+        allowedRecipients: policyRow.allowed_recipients,
+        allowedActionTypes: policyRow.allowed_action_types,
+        requireApprovalForTokenApprovals: policyRow.require_approval_for_token_approvals,
+        requireApprovalForAllActions: policyRow.require_approval_for_all_actions,
+      };
+      const unsupportedNetwork = proposal.network !== undefined && proposal.network !== "testnet";
+      const normalizedProposal = {
+        id: proposal.id,
+        agentId: typeof proposal.agentId === "string" ? proposal.agentId.slice(0, 128) : "unknown",
+        actionType: proposal.actionType,
+        asset: proposal.asset,
+        amountAtomic: proposal.amountAtomic,
+        target: proposal.target,
+        ...(typeof proposal.protocol === "string" ? { protocol: proposal.protocol } : {}),
+        ...(typeof proposal.approvalAmountAtomic === "string"
+          ? { approvalAmountAtomic: proposal.approvalAmountAtomic }
+          : {}),
+      };
+      const policyDecision = evaluateAction(normalizedProposal, policy);
+      const boundedPolicyDecision: AuthorizationDecision = unsupportedNetwork
+        ? {
+            ...policyDecision,
+            outcome: "BLOCK",
+            reason: "INVALID_PROPOSAL",
+            message: "Only NEAR Testnet proposals can be inspected by this environment. No action is authorized.",
+          }
+        : policyDecision;
+
+      const riskAssessment = await assessCounterpartyRiskForTarget(
+        admin,
+        user.id,
+        proposal.target,
+      );
+      const proposalForFingerprint = {
+        ...normalizedProposal,
+        network: "testnet",
+      };
+      const counterpartyRiskFingerprint = await fingerprintCounterpartyRisk({
+        ownerId: user.id,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        proposal: proposalForFingerprint,
+        risk: riskAssessment.decision,
+      });
+      const decision = combinePolicyAndCounterpartyRisk(boundedPolicyDecision, riskAssessment.decision);
+      const recordedProposal = {
+        ...proposalForFingerprint,
+        ...(unsupportedNetwork ? { requestedNetwork: proposal.network } : {}),
+        counterpartyRisk: riskAssessment.decision,
+        counterpartyRiskFingerprint,
+        riskCollection: riskAssessment.collection,
+      };
+
+      // Only this authenticated, service-role Edge Function may create a
+      // decision receipt. Browser sessions have no INSERT privilege on this table.
+      const { error: receiptError } = await admin.from("authorization_decisions").insert({
+        owner_id: user.id,
+        policy_id: policy.id,
+        policy_version: policy.version,
+        proposal_id: decision.proposalId,
+        agent_id: normalizedProposal.agentId,
+        action_type: normalizedProposal.actionType,
+        outcome: decision.outcome,
+        reason: decision.reason,
+        proposal: recordedProposal,
+      });
+      if (receiptError) {
+        console.error("Authorization decision receipt insert failed:", receiptError.message);
+        return reply({ error: "Decision could not be recorded. No action was authorized." }, 500);
+      }
+
+      return reply({
+        decision,
+        risk: riskAssessment.decision,
+        riskCollection: riskAssessment.collection,
         policy: { id: policy.id, version: policy.version },
       });
     }
