@@ -119,3 +119,42 @@ The following steps were completed after the initial audit record above was writ
 - No NEAR Mainnet use, Mainnet transaction, or arbitrary on-chain action was enabled. MANDATE remains a controlled NEAR Testnet demo.
 
 The earlier sections describe the implementation state at the time of the initial audit; this post-audit section records the subsequent deployment and live-wallet verification.
+
+## Final release closeout — 2026-11-07
+
+PR #18 has been squash-merged to `main` as commit `24a1c051f89110e1a0aff9e1470fbddd3c630919`.
+
+### Live recovery verification
+
+- The owner completed a fresh recovery-code reset in the MANDATE wallet page.
+- The page reported **Official NEAR NEP-413: SIGNATURE VALID** and **Wallet signing diagnostics: RESET VERIFIED**.
+- The UI confirmed that Supabase accepted the wallet signature and completed the one-time recovery-credential rotation. The previous recovery code is replaced; the user was instructed to save the new code privately.
+
+### Coordinated hosted release
+
+- `near-transfer-authorization`: ACTIVE v32, JWT verification enabled. Its source includes the exact security-audit preview origin added to resolve the preview's wallet/recovery CORS allowlist mismatch.
+- `agent-inspect`: ACTIVE v6, JWT verification disabled by design because the function authenticates its own `mnd_live_` API keys.
+- The merged `main` application routes proposal inspection through the trusted Edge Function and API-key management through the authenticated server route.
+- The Vercel deployment status for the merge commit is SUCCESS.
+- Application workflow and database/security workflow for the merge commit both completed successfully.
+- The hosted Supabase migration `20261107203500_revoke_browser_decision_receipt_inserts` has been applied. Supabase recorded it as migration version `20261107213937` (26 migrations total).
+
+### Post-migration database verification
+
+Live SQL privilege checks confirmed:
+
+| Check | Result |
+|---|---|
+| `anon` INSERT on `public.authorization_decisions` | Denied |
+| `authenticated` INSERT on `public.authorization_decisions` | Denied |
+| `service_role` INSERT on `public.authorization_decisions` | Allowed |
+| Previous browser INSERT policy | Absent |
+| Browser access to `public.api_keys` (anon/authenticated) | Denied |
+| `consume_api_key_quota` execution by anon/authenticated | Denied |
+| `consume_api_key_quota` execution by service_role | Allowed |
+
+The Supabase health advisor returned no findings. The security advisor still reports the Auth setting **Leaked Password Protection Disabled**; enablement is a separate account-security follow-up and was not changed during this release. The private-schema RLS-without-policies INFO findings reflect deliberate browser isolation of private wallet/recovery data. Performance INFO findings about several unindexed foreign keys remain separate follow-up work.
+
+### Final boundary
+
+MANDATE remains a controlled NEAR Testnet demo. The audited transfer adapter remains fixed to 0.001 NEAR and `confirmwithmandate.testnet`. This release does not authorize Mainnet deployment, arbitrary contract calls, swaps, or unrestricted agent transactions.
